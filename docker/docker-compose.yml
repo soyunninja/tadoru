@@ -1,0 +1,36 @@
+# Tadoru — copy this file to your VPS, set the password, and run `docker compose up -d`.
+# One service. No database container, no cache, no queue.
+
+services:
+  tadoru:
+    image: ghcr.io/OWNER/tadoru:latest
+    container_name: tadoru
+    restart: unless-stopped
+
+    ports:
+      # Bind to localhost only and let a reverse proxy terminate TLS in front of it.
+      # Change to "3000:3000" only if you are exposing it directly, which is not recommended.
+      - "127.0.0.1:3000:3000"
+
+    volumes:
+      # The SQLite database, the session secret and backups. Back up this directory.
+      - ./data:/data
+
+    environment:
+      # REQUIRED. The server refuses to start without it. Generate one with:
+      #   openssl rand -base64 24
+      TADORU_ADMIN_PASSWORD: ${TADORU_ADMIN_PASSWORD:?set TADORU_ADMIN_PASSWORD in a .env file next to this compose file}
+
+      # Domains you want to measure, comma-separated. Anything else is silently ignored.
+      TADORU_SITES: ${TADORU_SITES:-example.com}
+
+      # Set to true when running behind a reverse proxy, so the visitor's real IP is read
+      # from X-Forwarded-For instead of the proxy's own address. Leave false otherwise:
+      # trusting that header without a proxy in front lets anyone spoof their country.
+      TADORU_TRUSTED_PROXY: ${TADORU_TRUSTED_PROXY:-true}
+
+      # Inside a container this MUST be 0.0.0.0, or Docker's port mapping cannot
+      # reach it. The service is not exposed by that: the published port above is
+      # bound to 127.0.0.1 on the host. Outside a container the default is
+      # loopback, which is the right default there.
+      TADORU_HOST: 0.0.0.0

@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": ".",
+    "sourceMap": true,
+    "target": "es2022",
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": ["src", "bin"],
+  "exclude": ["**/*.test.ts", "src/**/fakes/**"]
+}

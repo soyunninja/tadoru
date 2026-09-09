@@ -1,0 +1,78 @@
+# Tadoru — systemd unit for a native (no container) install.
+#
+#   sudo cp deploy/tadoru.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now tadoru
+#
+# `tadoru install-service` writes this file for you with the right paths filled in.
+
+[Unit]
+Description=Tadoru — cookieless web analytics
+Documentation=https://github.com/OWNER/tadoru
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# A dedicated unprivileged account. `tadoru install-service` creates it if missing.
+User=tadoru
+Group=tadoru
+
+# The SQLite database, the session secret and backups live here.
+# systemd creates it as /var/lib/tadoru with the right ownership.
+StateDirectory=tadoru
+StateDirectoryMode=0700
+Environment=TADORU_DATA_DIR=/var/lib/tadoru
+Environment=NODE_ENV=production
+
+# TADORU_ADMIN_PASSWORD and any overrides go here. Keep it 0600, root-owned.
+# The service refuses to start if the admin password is unset.
+EnvironmentFile=/etc/tadoru/tadoru.env
+
+ExecStart=/usr/bin/env tadoru start
+Restart=on-failure
+RestartSec=5s
+
+# Give in-flight batches time to flush and the SQLite WAL to checkpoint.
+KillSignal=SIGTERM
+TimeoutStopSec=30s
+
+# ---------------------------------------------------------------------------
+# Hardening. A container gave you isolation for free; without one, this is how
+# you get it back. Verify with: systemd-analyze security tadoru
+# ---------------------------------------------------------------------------
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RemoveIPC=yes
+
+# The process needs no capabilities at all: it binds a high port as an
+# unprivileged user and a reverse proxy handles 80/443.
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Analytics ingest speaks IP only; AF_UNIX stays for logging to the journal.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# NOTE: do NOT add MemoryDenyWriteExecute=yes here. V8's JIT needs writable
+# executable pages, and Node will crash on start with it enabled.
+
+[Install]
+WantedBy=multi-user.target

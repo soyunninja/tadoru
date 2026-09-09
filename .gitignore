@@ -1,0 +1,30 @@
+# Local Pi runtime state
+.atl/
+
+# Dependencies
+node_modules/
+
+# Runtime data — never commit an analytics database
+data/
+*.db
+*.db-wal
+*.db-shm
+*.bak
+
+# Build output
+public/
+dist/
+
+# Local environment
+.env
+tadoru.config.json
+
+# macOS
+.DS_Store
+
+# Packaged tarballs
+*.tgz
+
+# Local agent tooling state, not part of the project
+.gga
+.pi/

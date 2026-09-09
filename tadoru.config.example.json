@@ -1,0 +1,28 @@
+{
+  "$comment": "Copy to tadoru.config.json. Every value here can also be set as an environment variable (TADORU_PORT, TADORU_SITES, ...). Environment variables win over this file.",
+
+  "port": 3000,
+  "dataDir": "./data",
+
+  "sites": [
+    "example.com",
+    "myproject.dev"
+  ],
+
+  "trustedProxy": false,
+
+  "retention": {
+    "$comment": "Raw event retention in months. The CNIL audience-measurement exemption caps this at 25. Values above 25 forfeit the consent exemption and the server will warn on boot.",
+    "rawEventMonths": 25
+  },
+
+  "session": {
+    "$comment": "Inactivity gap that ends a session, in minutes.",
+    "inactivityMinutes": 30
+  },
+
+  "admin": {
+    "$comment": "Never commit a password. Set TADORU_ADMIN_PASSWORD in the environment instead; the server refuses to start without it.",
+    "passwordHash": null
+  }
+}

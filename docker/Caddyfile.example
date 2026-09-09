@@ -1,0 +1,5 @@
+# Automatic TLS in front of Tadoru. Point tadoru.example.com at this server, then:
+#   caddy run --config Caddyfile
+tadoru.example.com {
+	reverse_proxy 127.0.0.1:3000
+}

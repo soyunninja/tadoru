@@ -1,0 +1,58 @@
+{
+  "name": "tadoru",
+  "version": "0.1.0",
+  "description": "Cookieless, privacy-first, self-hosted web analytics. One process, one file, no consent banner.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": ">=22.18.0",
+      "onFail": "error"
+    }
+  },
+  "bin": {
+    "tadoru": "dist/bin/tadoru.js"
+  },
+  "files": [
+    "dist",
+    "public",
+    "tadoru.config.example.json",
+    "deploy/tadoru.service",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test \"src/**/*.test.ts\" \"tracker/**/*.test.ts\" \"bin/**/*.test.ts\"",
+    "test:watch": "node --test --watch \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tracker",
+    "dev": "node --watch bin/tadoru.ts start",
+    "start": "node bin/tadoru.ts start",
+    "build:tracker": "node tracker/build.ts",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && npm run build:tracker",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3",
+    "fastify": "^5.12.3",
+    "geoip-lite": "^2.0.3",
+    "node-device-detector": "^2.2.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.5.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/OWNER/tadoru.git"
+  },
+  "homepage": "https://github.com/OWNER/tadoru",
+  "bugs": {
+    "url": "https://github.com/OWNER/tadoru/issues"
+  }
+}
