@@ -6,6 +6,8 @@ import { ok, err } from '../../../shared/Result.ts';
 import { createSiteId } from '../../domain/event/SiteId.ts';
 import type { SiteId } from '../../domain/event/SiteId.ts';
 import { hashPassword } from '../http/adminAuth.ts';
+import { isSupportedLocale } from '../i18n/Locale.ts';
+import type { Locale } from '../i18n/Locale.ts';
 import type { Config } from './Config.ts';
 import {
   DEFAULT_PORT,
@@ -73,6 +75,11 @@ function parseSites(raw: readonly string[] | undefined): readonly SiteId[] {
   return [...normalised];
 }
 
+/** `TADORU_LANG`, if set to one of the supported locale codes; otherwise `undefined`, leaving per-request negotiation to `Accept-Language`. */
+function parseLanguageEnv(value: string | undefined): Locale | undefined {
+  return value !== undefined && isSupportedLocale(value) ? value : undefined;
+}
+
 function isKnownExamplePassword(password: string): boolean {
   const normalised = password.trim().toLowerCase();
   return (KNOWN_EXAMPLE_ADMIN_PASSWORDS as readonly string[]).includes(normalised);
@@ -128,6 +135,8 @@ export function loadConfig(options: LoadConfigOptions = {}): Result<LoadedConfig
 
   const inactivityMinutes = fileConfig.session?.inactivityMinutes ?? DEFAULT_SESSION_INACTIVITY_MINUTES;
 
+  const language = parseLanguageEnv(env['TADORU_LANG']);
+
   const adminPassword = env['TADORU_ADMIN_PASSWORD'] ?? fileConfig.adminPassword ?? '';
 
   if (adminPassword.trim().length === 0) {
@@ -165,6 +174,7 @@ export function loadConfig(options: LoadConfigOptions = {}): Result<LoadedConfig
     retention: { rawEventMonths },
     session: { inactivityMinutes, secret: sessionSecret },
     admin: { passwordHash, passwordSalt },
+    ...(language !== undefined ? { language } : {}),
   };
 
   return ok({ config, warnings });

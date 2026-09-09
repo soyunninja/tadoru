@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildServer } from './server.ts';
 import { loadConfig } from '../config/loadConfig.ts';
+import { BUNDLED_FONT_URL } from '../assets.ts';
 
 function withServer(fn: (server: ReturnType<typeof buildServer>) => Promise<void>): () => Promise<void> {
   return async () => {
@@ -133,4 +134,16 @@ test('the built server serves the tracker bundle the README tells people to embe
   assert.equal(response.statusCode, 200);
   assert.match(response.headers['content-type'] as string, /javascript/);
   assert.match(response.body, /AGPL-3\.0-only/);
+}));
+
+test('the built server serves its own web font, and the CSP allows it', withServer(async (server) => {
+  const font = await server.fastify.inject({ method: 'GET', url: BUNDLED_FONT_URL });
+  assert.equal(font.statusCode, 200);
+  assert.equal(font.headers['content-type'], 'font/woff2');
+  assert.ok(font.rawPayload.length > 10_000, 'the real subset should be served, not a stub');
+
+  // A font-src the policy forbids would block it in the browser even though
+  // the route works, so assert the policy too.
+  const page = await server.fastify.inject({ method: 'GET', url: '/login' });
+  assert.match(page.headers['content-security-policy'] as string, /font-src 'self'/);
 }));

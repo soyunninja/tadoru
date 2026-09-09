@@ -46,3 +46,20 @@ test('falls back to the code itself when a region has no name', () => {
   // A syntactically valid but unassigned code should still render something.
   assert.match(countryDisplayName('QZ'), /QZ|Unknown/);
 });
+
+test('names the country in Spanish or Japanese when asked', () => {
+  assert.equal(countryDisplayName('ES', 'es'), 'España');
+  assert.equal(countryDisplayName('ES', 'ja'), 'スペイン');
+});
+
+test('translates "Unknown" for the sentinel and for malformed input per locale', () => {
+  assert.equal(countryDisplayName('XX', 'es'), 'Desconocido');
+  assert.equal(countryDisplayName('XX', 'ja'), '不明');
+  assert.equal(countryDisplayName('', 'es'), 'Desconocido');
+});
+
+test('never throws on malformed input regardless of locale', () => {
+  for (const bad of ['', 'E', 'ESP', '12', '  ']) {
+    assert.doesNotThrow(() => countryDisplayName(bad, 'ja'));
+  }
+});

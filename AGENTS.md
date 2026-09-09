@@ -45,8 +45,13 @@ not the test.
    applies, so a longer setting must warn loudly on boot.
 8. **Unique visitors are never summed across rollup dimensions.** Each dimension's `visitors`
    column is an independent `COUNT(DISTINCT visitor_id)` computed from raw events.
-9. **The dashboard makes no third-party requests.** No favicons, icon CDNs, web fonts or remote
-   images of any kind — only its own origin. Markers are derived locally (country flags from the
+9. **The dashboard makes no third-party requests.** No favicons, no icon CDNs, no remote images,
+   and no font CDN — only its own origin. The web font is a subset bundled in `assets/fonts/` and
+   served from `self`. Its icon glyphs are Font Awesome under CC BY 4.0, which requires the
+   attribution kept in `assets/fonts/NOTICE.md` — do not drop that file from the package. Only
+   `U+F000`–`U+F2FF` is attributed; Font Logos is unlicensed and a test enforces the boundary.
+   `scripts/build-font.ts` derives the subset from the view modules' exported glyph lists, so an
+   icon added to the interface reaches the font without a second list to keep in step. Markers are derived locally (country flags from the
    ISO code, OS icons as emoji) or omitted. Favicons will be proposed again because every
    competitor has them; see `docs/adr/0007-no-third-party-requests-from-the-dashboard.md` first.
 10. **The corresponding source is offered over the network.** The project is AGPL-3.0-only, and
@@ -84,9 +89,11 @@ It must print nothing.
   enum — see `EventType.ts` for the pattern.
 - `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` and `verbatimModuleSyntax`
   are on. Type-only imports must use `import type`.
-- **Two TypeScript configs on purpose.** The root one covers `src/` and `bin/` with no DOM lib,
-  so server code cannot reach for a browser global by accident. `tracker/tsconfig.json` adds the
-  DOM lib for the browser script. `npm run typecheck` runs both.
+- **Two TypeScript configs on purpose.** The root one covers `src/`, `bin/` and `scripts/` with no
+  DOM lib, so server code cannot reach for a browser global by accident. `tracker/tsconfig.json`
+  adds the DOM lib for the browser script. `npm run typecheck` runs both. A new top-level directory
+  must be added to one of them deliberately — code checked by neither config is the easiest place
+  for a break to hide.
 - The **published** package is different: `npm run build` compiles to `dist/` with
   `rewriteRelativeImportExtensions`, which rewrites `.ts` imports to `.js`, so installs run on
   any Node >= 22 without type stripping, which is only unflagged from 22.18. Development stays

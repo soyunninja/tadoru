@@ -1,12 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { MetricRow } from '../../../domain/report/Metrics.ts';
+import { HEADLINE_ICON_GLYPHS } from './components.ts';
+import { OPERATING_SYSTEM_ICON_GLYPHS } from './operatingSystem.ts';
+import { BROWSER_ICON_GLYPHS } from './browser.ts';
+import { DEVICE_ICON_GLYPHS } from './device.ts';
 import {
   sumMetricRows,
   bounceRate,
   averageEngagementSeconds,
-  formatDuration,
-  formatPercent,
   labelForKey,
   renderHeadline,
   renderBreakdownTable,
@@ -53,19 +55,6 @@ test('averageEngagementSeconds is engagementSeconds/sessions, and 0 when session
   );
 });
 
-test('formatDuration renders m:ss', () => {
-  assert.equal(formatDuration(0), '0:00');
-  assert.equal(formatDuration(5), '0:05');
-  assert.equal(formatDuration(65), '1:05');
-  assert.equal(formatDuration(600), '10:00');
-});
-
-test('formatPercent renders one decimal place with a % sign', () => {
-  assert.equal(formatPercent(0), '0.0%');
-  assert.equal(formatPercent(0.5), '50.0%');
-  assert.equal(formatPercent(1), '100.0%');
-});
-
 test('labelForKey shows "Direct" for an empty referrer and a readable label for other empty dimensions', () => {
   assert.equal(labelForKey('referrer', ''), 'Direct');
   assert.equal(labelForKey('country', ''), '(unknown)');
@@ -78,9 +67,21 @@ test('renderHeadline includes the five headline numbers and the visitor-summing 
   assert.match(html, />4</);
   assert.match(html, />10</);
   assert.match(html, />5</);
-  assert.match(html, /20\.0%/);
+  // The unit is its own element now, so the percentage renders as "20.0" plus
+  // a "%" marker rather than one string.
+  assert.match(html, /20\.0/);
+  assert.match(html, /<span class="unit">%<\/span>/);
   assert.match(html, /0:20/);
-  assert.match(html, /won't match the total above/);
+  // Collapsed by default: the question is visible, the answer is one click away.
+  // Escaped, not raw — the apostrophe arrives as &#39;, which the browser renders
+  // as an apostrophe. Passing catalogue text through raw() would buy nothing and
+  // leave an injection hole open for the day translations stop being hardcoded.
+  assert.match(html, /<details class="caveat">/);
+  assert.match(html, /<summary>Why don&#39;t the tables match these totals\?<\/summary>/);
+  // A worked example beats a definition: the explanation names a person and
+  // walks through what she did.
+  assert.match(html, /Ana visits your site/);
+  assert.match(html, /gives more than the total above/);
 });
 
 test('renderBreakdownTable escapes an attacker-controlled key', () => {
@@ -177,7 +178,7 @@ test('the operating system table shows an icon beside the name', () => {
   const html = renderBreakdownTable('Operating systems', 'os', [
     { key: 'GNU/Linux', visitors: 5, pageviews: 9, sessions: 5, bounces: 1, engagementSeconds: 50 },
   ]).toString();
-  assert.match(html, /aria-hidden="true"[^>]*>🐧/);
+  assert.match(html, /aria-hidden="true"[^>]*>\u{f17c}/u);
   assert.match(html, /GNU\/Linux/);
 });
 
@@ -185,6 +186,168 @@ test('other dimensions are left undecorated', () => {
   const html = renderBreakdownTable('Top pages', 'path', [
     { key: '/blog/post', visitors: 3, pageviews: 4, sessions: 3, bounces: 1, engagementSeconds: 30 },
   ]).toString();
-  assert.ok(!html.includes('aria-hidden'));
+  // The share bar is aria-hidden on every row, so assert the real intent:
+  // no country flag and no operating-system icon on an unrelated dimension.
+  assert.ok(!/aria-hidden="true">[^<]*[\u{1F1E6}-\u{1F1FF}\u{1F300}-\u{1FAFF}]/u.test(html));
   assert.match(html, /\/blog\/post/);
+});
+
+test('numeric columns are marked so digits align instead of ragging left', () => {
+  const html = renderBreakdownTable('Top pages', 'path', [
+    { key: '/a', visitors: 7, pageviews: 1234, sessions: 7, bounces: 1, engagementSeconds: 10 },
+  ]).toString();
+  // Both the header and the cell, or the column still looks crooked.
+  // 'path' leads with pageviews, so Pageviews is the first figure here and
+  // Visitors takes the fixed-width anchor column on the right.
+  assert.match(html, /<th class="num">Pageviews<\/th>/);
+  assert.match(html, /<th class="num num-last">Visitors<\/th>/);
+  // Grouped per locale (English here) via Intl.NumberFormat, not a bare "1234".
+  assert.match(html, /<td class="num">1,234<\/td>/);
+  assert.match(html, /<td class="num num-last">7<\/td>/);
+});
+
+test('the first column header is hidden on screen but still announced, with a translated label', () => {
+  // The card heading already names the column visually, so repeating it is
+  // noise — but removing it outright leaves a data column unlabelled for
+  // screen readers. The label comes from the message catalogue, keyed by
+  // dimension, so it stays translated too.
+  const html = renderBreakdownTable('Top pages', 'path', [
+    { key: '/a', visitors: 1, pageviews: 1, sessions: 1, bounces: 0, engagementSeconds: 0 },
+  ]).toString();
+  assert.match(html, /<th><span class="sr-only">Top pages<\/span><\/th>/);
+});
+
+test('a row without an icon still reserves the marker slot, so labels line up', () => {
+  // 'Symbian' has no icon. Without the empty slot its label would start 25px
+  // left of every other row in the same table.
+  const html = renderBreakdownTable('Operating systems', 'os', [
+    { key: 'GNU/Linux', visitors: 5, pageviews: 5, sessions: 5, bounces: 0, engagementSeconds: 0 },
+    { key: 'Symbian', visitors: 1, pageviews: 1, sessions: 1, bounces: 0, engagementSeconds: 0 },
+  ]).toString();
+  assert.equal((html.match(/<span class="marker"/g) ?? []).length, 2);
+  assert.match(html, /<span class="marker" aria-hidden="true"><\/span>Symbian/);
+});
+
+test('an unlocatable country reserves the slot too', () => {
+  const html = renderBreakdownTable('Countries', 'country', [
+    { key: 'XX', visitors: 1, pageviews: 1, sessions: 1, bounces: 0, engagementSeconds: 0 },
+  ]).toString();
+  assert.match(html, /<span class="marker" aria-hidden="true"><\/span>Unknown/);
+});
+
+test('dimensions with no marker at all render no slot', () => {
+  // Reserving 25px in front of every page path would just be a wasted indent.
+  const html = renderBreakdownTable('Top pages', 'path', [
+    { key: '/blog/post', visitors: 1, pageviews: 1, sessions: 1, bounces: 0, engagementSeconds: 0 },
+  ]).toString();
+  assert.ok(!html.includes('class="marker"'));
+});
+
+test('labelForKey translates the empty-key placeholder per locale', () => {
+  assert.equal(labelForKey('referrer', '', 'es'), 'Directo');
+  assert.equal(labelForKey('country', '', 'ja'), '（不明）');
+});
+
+test('renderHeadline translates its labels and localises its numbers', () => {
+  const html = renderHeadline(
+    { pageviews: 1000, visitors: 4, sessions: 5, bounces: 1, engagementSeconds: 100 },
+    'es',
+  ).toString();
+  assert.match(html, /Visitantes/);
+  assert.match(html, /Páginas vistas/);
+  assert.match(html, /Sesiones/);
+  assert.match(html, /Tasa de rebote/);
+  assert.match(html, /Interacción media/);
+  assert.match(html, /¿Por qué las tablas no cuadran con estos totales\?/);
+  // Spanish groups thousands with a period.
+  assert.match(html, /1\.000/);
+  // The bounce rate (20%) uses a comma decimal separator in Spanish.
+  assert.match(html, /20,0/);
+});
+
+test('renderBreakdownTable translates the empty-range message and the column headers', () => {
+  const empty = renderBreakdownTable('Referrers', 'referrer', [], 'ja').toString();
+  assert.match(empty, /この範囲のデータはありません。/);
+
+  const withRows = renderBreakdownTable('Referrers', 'referrer', [
+    { key: '', visitors: 3, pageviews: 3, sessions: 3, bounces: 0, engagementSeconds: 0 },
+  ], 'ja').toString();
+  assert.match(withRows, /直接アクセス/);
+  assert.match(withRows, /<th class="num">訪問者数<\/th>/);
+});
+
+test('renderBreakdownTable shows the country name in the requested locale', () => {
+  const html = renderBreakdownTable('Countries', 'country', [
+    { key: 'ES', visitors: 1, pageviews: 1, sessions: 1, bounces: 0, engagementSeconds: 0 },
+  ], 'ja').toString();
+  assert.match(html, /スペイン/);
+});
+
+test('renderVisitorChart translates its accessible text and table headers, keeping the ISO date machine-readable', () => {
+  const html = renderVisitorChart([{ date: '2026-01-01', visitors: 3 }], 'ja').toString();
+  assert.match(html, /aria-label="日別訪問者数"/);
+  assert.match(html, /<summary>日別訪問者数（表）<\/summary>/);
+  assert.match(html, /<th>日付<\/th><th>訪問者数<\/th>/);
+  // Machine-readable ISO date preserved in a `datetime` attribute...
+  assert.match(html, /<time datetime="2026-01-01">/);
+  // ...while the visible label is localised.
+  assert.match(html, /<time datetime="2026-01-01">2026\/01\/01<\/time>/);
+});
+
+test('renderVisitorChart translates the empty-chart message', () => {
+  const html = renderVisitorChart([], 'es').toString();
+  assert.match(html, /No hay datos para graficar\./);
+});
+
+test('renderLogoutForm translates its button label', () => {
+  assert.match(renderLogoutForm('es').toString(), />Cerrar sesión</);
+  assert.match(renderLogoutForm('ja').toString(), />ログアウト</);
+});
+
+test('locale defaults to English when omitted, so existing callers are unaffected', () => {
+  assert.match(renderLogoutForm().toString(), />Log out</);
+});
+
+test('top pages leads with pageviews and is sorted by them, matching its own title', () => {
+  // Pageviews are additive: each one belongs to exactly one page, so this
+  // column really does sum to the headline total. Visitors do not.
+  const html = renderBreakdownTable('Top pages', 'path', [
+    { key: '/few-views-many-people', visitors: 90, pageviews: 100, sessions: 90, bounces: 0, engagementSeconds: 0 },
+    { key: '/many-views-few-people', visitors: 10, pageviews: 500, sessions: 10, bounces: 0, engagementSeconds: 0 },
+  ]).toString();
+  assert.ok(
+    html.indexOf('/many-views-few-people') < html.indexOf('/few-views-many-people'),
+    'the most viewed page should come first on a "most viewed" table',
+  );
+});
+
+test('other dimensions still lead with visitors', () => {
+  const html = renderBreakdownTable('Countries', 'country', [
+    { key: 'ES', visitors: 10, pageviews: 500, sessions: 10, bounces: 0, engagementSeconds: 0 },
+    { key: 'FR', visitors: 90, pageviews: 100, sessions: 90, bounces: 0, engagementSeconds: 0 },
+  ]).toString();
+  assert.match(html, /<th class="num">Visitors<\/th>/);
+  assert.ok(html.indexOf('France') < html.indexOf('Spain'), 'sorted by visitors, not pageviews');
+});
+
+test('every icon the interface renders sits in the attributed licence range', () => {
+  // scripts/build-font.ts derives the font subset from these same exports, so
+  // an icon added to a view module reaches the bundled font automatically.
+  // What it cannot check is licensing: Font Logos (U+F300 and above) is
+  // recorded as unlicensed in the Nerd Fonts audit, and only U+F000-U+F2FF is
+  // covered by the CC BY 4.0 attribution in assets/fonts/NOTICE.md.
+  const everyGlyph = [
+    ...HEADLINE_ICON_GLYPHS,
+    ...OPERATING_SYSTEM_ICON_GLYPHS,
+    ...BROWSER_ICON_GLYPHS,
+    ...DEVICE_ICON_GLYPHS,
+  ];
+  assert.ok(everyGlyph.length > 0, 'the interface should render some icons');
+  for (const glyph of everyGlyph) {
+    const codepoint = glyph.codePointAt(0);
+    assert.ok(
+      codepoint !== undefined && codepoint >= 0xf000 && codepoint <= 0xf2ff,
+      `U+${codepoint?.toString(16)} falls outside the attributed range`,
+    );
+  }
 });

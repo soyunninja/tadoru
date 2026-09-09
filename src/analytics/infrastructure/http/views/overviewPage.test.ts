@@ -99,3 +99,32 @@ test('campaigns lead the breakdowns, ahead of pages and referrers', () => {
   assert.ok(campaignsAt !== -1 && pagesAt !== -1, 'both sections should render');
   assert.ok(campaignsAt < pagesAt, 'Campaigns should come first');
 });
+
+test('renderOverviewPage translates the section titles, range labels and page title', () => {
+  const page = renderOverviewPage(
+    baseOptions({
+      range: '30d',
+      totals: { pageviews: 4, visitors: 2, sessions: 2, bounces: 1, engagementSeconds: 60 },
+      breakdowns: { ...emptyBreakdowns, path: [row('/', 2)] },
+      locale: 'es',
+    }),
+  ).toString();
+  assert.match(page, /<title>example\.com — Tadoru<\/title>/);
+  assert.match(page, /Páginas más vistas/);
+  assert.match(page, />30 días</);
+  assert.match(page, /Todos los sitios/);
+});
+
+test('renderOverviewPage translates the empty-state sentence', () => {
+  const page = renderOverviewPage(baseOptions({ locale: 'ja' })).toString();
+  assert.match(page, /この範囲のデータはまだありません。/);
+  assert.match(page, /サイト一覧ページ/);
+});
+
+test('renderOverviewPage passes the current locale and URL down to the shared layout', () => {
+  const page = renderOverviewPage(
+    baseOptions({ locale: 'ja', currentUrl: '/dashboard/example.com?range=7d' }),
+  ).toString();
+  assert.match(page, /<html lang="ja">/);
+  assert.match(page, /lang=ja/);
+});

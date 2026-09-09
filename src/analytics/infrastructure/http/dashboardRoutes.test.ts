@@ -10,6 +10,7 @@ import type { SiteId } from '../../domain/event/SiteId.ts';
 import type { TimeRange } from '../../domain/report/TimeRange.ts';
 import type { Breakdown, BreakdownDimension } from '../../domain/report/Breakdown.ts';
 import type { MetricRow } from '../../domain/report/Metrics.ts';
+import type { Locale } from '../i18n/Locale.ts';
 
 function site(value: string): SiteId {
   return value as SiteId;
@@ -37,6 +38,7 @@ interface BuildAppOptions {
   readonly trustedProxy?: boolean;
   readonly now?: Date;
   readonly withJsonLogin?: boolean;
+  readonly configuredLocale?: Locale;
 }
 
 function buildApp(options: BuildAppOptions = {}): { fastify: FastifyInstance; passwordUsed: string } {
@@ -62,6 +64,7 @@ function buildApp(options: BuildAppOptions = {}): { fastify: FastifyInstance; pa
     loginRateLimiter,
     querySiteMetrics: options.querySiteMetrics ?? new FakeQuerySiteMetrics(),
     ...(options.now !== undefined ? { clock: { now: () => options.now as Date } } : {}),
+    ...(options.configuredLocale !== undefined ? { configuredLocale: options.configuredLocale } : {}),
   });
 
   return { fastify, passwordUsed: password };
@@ -248,7 +251,7 @@ test('GET /dashboard/:site computes headline totals from the device breakdown, n
   assert.equal(response.statusCode, 200);
   // Headline visitors must be 5 (the exact device-breakdown count), never 7
   // (the naive, inflated sum across the path breakdown's rows).
-  assert.match(response.payload, /<div class="value">5<\/div>\s*<div class="label">Visitors<\/div>/);
+  assert.match(response.payload, /<span class="value">5<\/span>\s*<div class="label">Visitors<\/div>/);
   assert.match(response.payload, /\/a/);
   assert.match(response.payload, /\/b/);
 });
@@ -325,7 +328,7 @@ test('every dashboard response carries the required security headers', async () 
   const response = await fastify.inject({ method: 'GET', url: '/login' });
   assert.equal(
     response.headers['content-security-policy'],
-    "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'",
+    "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; form-action 'self'; frame-ancestors 'none'",
   );
   assert.equal(response.headers['x-content-type-options'], 'nosniff');
   assert.equal(response.headers['referrer-policy'], 'same-origin');
@@ -355,4 +358,113 @@ test('every rendered page links to the project repository and shows the running 
   const response = await fastify.inject({ method: 'GET', url: '/login' });
   assert.match(response.payload, /<footer>/);
   assert.match(response.payload, /0\.1\.0/);
+});
+
+test('with no ?lang=, no configured locale and no Accept-Language, the dashboard defaults to English', async () => {
+  const { fastify } = buildApp();
+  const response = await fastify.inject({ method: 'GET', url: '/login' });
+  assert.match(response.payload, /<html lang="en">/);
+  assert.match(response.payload, /<h1>Tadoru admin<\/h1>/);
+});
+
+test('?lang= on the query string selects the page language', async () => {
+  const { fastify } = buildApp();
+  const response = await fastify.inject({ method: 'GET', url: '/login?lang=es' });
+  assert.match(response.payload, /<html lang="es">/);
+  assert.match(response.payload, /<h1>Administración de Tadoru<\/h1>/);
+});
+
+test('an unsupported ?lang= value is ignored, falling through to the next layer', async () => {
+  const { fastify } = buildApp();
+  const response = await fastify.inject({
+    method: 'GET',
+    url: '/login?lang=klingon',
+    headers: { 'accept-language': 'ja' },
+  });
+  assert.match(response.payload, /<html lang="ja">/);
+});
+
+test('the operator\'s configured locale (TADORU_LANG) is used when no ?lang= is present', async () => {
+  const { fastify } = buildApp({ configuredLocale: 'ja' });
+  const response = await fastify.inject({ method: 'GET', url: '/login' });
+  assert.match(response.payload, /<html lang="ja">/);
+  assert.match(response.payload, /<h1>Tadoru 管理画面<\/h1>/);
+});
+
+test('?lang= wins over the configured locale', async () => {
+  const { fastify } = buildApp({ configuredLocale: 'ja' });
+  const response = await fastify.inject({ method: 'GET', url: '/login?lang=es' });
+  assert.match(response.payload, /<html lang="es">/);
+});
+
+test('Accept-Language negotiates a language when nothing else is set', async () => {
+  const { fastify } = buildApp();
+  const response = await fastify.inject({
+    method: 'GET',
+    url: '/login',
+    headers: { 'accept-language': 'en-GB,en;q=0.9,es;q=0.8' },
+  });
+  // "en-GB" resolves to the supported "en" primary subtag and outranks "es".
+  assert.match(response.payload, /<html lang="en">/);
+
+  const spanishPreferred = await fastify.inject({
+    method: 'GET',
+    url: '/login',
+    headers: { 'accept-language': 'es-ES,en;q=0.5' },
+  });
+  assert.match(spanishPreferred.payload, /<html lang="es">/);
+});
+
+test('a malformed Accept-Language header never breaks the response, and falls back to English', async () => {
+  const { fastify } = buildApp();
+  const response = await fastify.inject({
+    method: 'GET',
+    url: '/login',
+    headers: { 'accept-language': ',,,;q=;garbage' },
+  });
+  assert.equal(response.statusCode, 200);
+  assert.match(response.payload, /<html lang="en">/);
+});
+
+test('the sites page, the overview page and the 404 page are all translated', async () => {
+  const { fastify, passwordUsed } = buildApp({ sites: [site('example.com')] });
+  const cookie = await loginAndGetCookie(fastify, passwordUsed);
+
+  const sitesPage = await fastify.inject({ method: 'GET', url: '/dashboard?lang=es', headers: { cookie } });
+  assert.match(sitesPage.payload, /<h1>Sitios<\/h1>/);
+
+  const overviewPage = await fastify.inject({
+    method: 'GET',
+    url: '/dashboard/example.com?lang=es',
+    headers: { cookie },
+  });
+  assert.match(overviewPage.payload, /Todos los sitios/);
+
+  const notFoundPage = await fastify.inject({
+    method: 'GET',
+    url: '/dashboard/not-configured.example?lang=es',
+    headers: { cookie },
+  });
+  assert.equal(notFoundPage.statusCode, 404);
+  assert.match(notFoundPage.payload, /<h1>No encontrado<\/h1>/);
+});
+
+test('the overview page preserves the range query when switching language', async () => {
+  const { fastify, passwordUsed } = buildApp({ sites: [site('example.com')] });
+  const cookie = await loginAndGetCookie(fastify, passwordUsed);
+  const response = await fastify.inject({
+    method: 'GET',
+    url: '/dashboard/example.com?range=30d',
+    headers: { cookie },
+  });
+  assert.match(response.payload, /href="\/dashboard\/example\.com\?range=30d&(amp;)?lang=es"/);
+});
+
+test('the language switcher marks the active language and offers the other two', async () => {
+  const { fastify } = buildApp();
+  const response = await fastify.inject({ method: 'GET', url: '/login' });
+  assert.match(response.payload, />English</);
+  assert.match(response.payload, />Español</);
+  assert.match(response.payload, />日本語</);
+  assert.match(response.payload, /aria-current="page"/);
 });

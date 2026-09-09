@@ -19,6 +19,7 @@
   },
   "files": [
     "dist",
+    "assets",
     "public",
     "tadoru.config.example.json",
     "deploy/tadoru.service",
@@ -33,7 +34,8 @@
     "start": "node bin/tadoru.ts start",
     "build:tracker": "node tracker/build.ts",
     "build": "rm -rf dist && tsc -p tsconfig.build.json && npm run build:tracker",
-    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+    "prepublishOnly": "npm run typecheck && npm test && npm run build",
+    "build:font": "node scripts/build-font.ts"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",
@@ -45,14 +47,15 @@
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.5.0",
     "esbuild": "^0.28.2",
+    "subset-font": "^2.7.0",
     "typescript": "^7.0.2"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/OWNER/tadoru.git"
+    "url": "git+https://github.com/soyunninja/tadoru.git"
   },
-  "homepage": "https://github.com/OWNER/tadoru",
+  "homepage": "https://github.com/soyunninja/tadoru",
   "bugs": {
-    "url": "https://github.com/OWNER/tadoru/issues"
+    "url": "https://github.com/soyunninja/tadoru/issues"
   }
 }

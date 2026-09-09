@@ -1,4 +1,5 @@
 import type { SiteId } from '../../domain/event/SiteId.ts';
+import type { Locale } from '../i18n/Locale.ts';
 
 /**
  * Fully-resolved, validated runtime configuration. Every field here has
@@ -14,6 +15,14 @@ export interface Config {
   readonly retention: RetentionConfig;
   readonly session: SessionConfig;
   readonly admin: AdminConfig;
+  /**
+   * The operator's `TADORU_LANG` setting, if set to a supported locale.
+   * Omitted (rather than defaulting to English here) so the dashboard can
+   * still negotiate from each request's `Accept-Language` header when the
+   * operator never configured one — see `dashboardRoutes.ts`'s
+   * `resolveRequestLocale`.
+   */
+  readonly language?: Locale;
 }
 
 export interface RetentionConfig {

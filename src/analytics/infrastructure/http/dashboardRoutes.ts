@@ -29,6 +29,9 @@ import { renderLoginPage } from './views/loginPage.ts';
 import type { RangeKey } from './views/overviewPage.ts';
 import { renderOverviewPage } from './views/overviewPage.ts';
 import { sumMetricRows, renderLogoutForm, renderTrackingSnippet } from './views/components.ts';
+import type { Locale } from '../i18n/Locale.ts';
+import { resolveLocale } from '../i18n/Locale.ts';
+import { messagesFor } from '../i18n/messages.ts';
 
 /**
  * The narrow surface `dashboardRoutes` needs from `QuerySiteMetrics`.
@@ -49,6 +52,8 @@ export interface DashboardRoutesDependencies {
   readonly loginRateLimiter: TokenBucketRateLimiter;
   readonly querySiteMetrics: QuerySiteMetricsUseCase;
   readonly clock?: Clock;
+  /** The operator's `TADORU_LANG` setting (see `loadConfig.ts`), if configured. Second in the language-resolution order, behind `?lang=` and ahead of `Accept-Language`. */
+  readonly configuredLocale?: Locale;
 }
 
 const DEFAULT_CLOCK: Clock = { now: () => new Date() };
@@ -61,11 +66,9 @@ const SESSION_VALUE_PREFIX = 'admin-session';
 
 const DASHBOARD_LOGIN_RATE_LIMIT_KEY = 'dashboard-login';
 
-const GENERIC_LOGIN_FAILURE_MESSAGE = 'Invalid password or too many attempts. Please try again.';
-
 const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   'Content-Security-Policy':
-    "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'",
+    "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; form-action 'self'; frame-ancestors 'none'",
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'same-origin',
 };
@@ -83,7 +86,7 @@ interface PackageMetadata {
 
 /**
  * Reads `version` and a "corresponding source" URL from package.json once at
- * module load (AGENTS.md invariant 9 / docs/adr/0006-agpl-and-the-network
+ * module load (AGENTS.md invariant 10 / docs/adr/0006-agpl-and-the-network
  * -clause.md): every dashboard page's footer must link to the repository
  * and show the exact running version, so it can never drift from a
  * hardcoded literal. Falls back to a placeholder repository URL if
@@ -132,6 +135,27 @@ function requestHeaders(request: FastifyRequest): HeaderMap {
   return request.headers as HeaderMap;
 }
 
+/** Reads `lang` off a request's query string without depending on any particular Fastify Querystring generic. */
+function queryLangParam(query: unknown): string | undefined {
+  if (typeof query !== 'object' || query === null) return undefined;
+  const value = (query as Record<string, unknown>)['lang'];
+  return typeof value === 'string' ? value : undefined;
+}
+
+/**
+ * Resolves the language for one request, per specs/dashboard/spec.md's i18n
+ * change: `?lang=` wins, then the operator's `TADORU_LANG`
+ * (`deps.configuredLocale`), then `Accept-Language` negotiation, then
+ * English.
+ */
+function resolveRequestLocale(request: FastifyRequest, deps: DashboardRoutesDependencies): Locale {
+  return resolveLocale({
+    queryLang: queryLangParam(request.query),
+    configuredLocale: deps.configuredLocale,
+    acceptLanguageHeader: firstHeaderValue(requestHeaders(request)['accept-language']),
+  });
+}
+
 function sendHtml(reply: FastifyReply, statusCode: number, page: SafeHtml): FastifyReply {
   return reply.code(statusCode).type('text/html; charset=utf-8').send(page.toString());
 }
@@ -173,7 +197,10 @@ function renderSitesPage(options: {
   readonly sites: readonly SiteId[];
   readonly host: string;
   readonly secure: boolean;
+  readonly locale: Locale;
+  readonly currentUrl: string;
 }): SafeHtml {
+  const messages = messagesFor(options.locale);
   const items = options.sites.map(
     (siteId) => html`<li>
   <h2><a href="/dashboard/${siteId}">${siteId}</a></h2>
@@ -183,29 +210,34 @@ function renderSitesPage(options: {
 
   const listOrEmpty =
     options.sites.length === 0
-      ? html`<p class="muted">No sites configured.</p>`
+      ? html`<p class="muted">${messages.sites.empty}</p>`
       : html`<ul>${items}</ul>`;
 
-  const body = html`<h1>Sites</h1>
+  const body = html`<h1>${messages.sites.heading}</h1>
 ${listOrEmpty}
-<p>${renderLogoutForm()}</p>`;
+<p>${renderLogoutForm(options.locale)}</p>`;
 
   return renderLayout({
-    title: 'Sites — Tadoru',
+    title: messages.sites.pageTitle,
     body,
     version: PACKAGE_METADATA.version,
     repositoryUrl: PACKAGE_METADATA.repositoryUrl,
+    locale: options.locale,
+    currentUrl: options.currentUrl,
   });
 }
 
-function renderNotFoundPage(): SafeHtml {
-  const body = html`<h1>Not found</h1>
-<p>That site is not configured. <a href="/dashboard">Back to sites</a>.</p>`;
+function renderNotFoundPage(locale: Locale, currentUrl: string): SafeHtml {
+  const messages = messagesFor(locale);
+  const body = html`<h1>${messages.notFound.heading}</h1>
+<p>${messages.notFound.body} <a href="/dashboard">${messages.notFound.backLink}</a>.</p>`;
   return renderLayout({
-    title: 'Not found — Tadoru',
+    title: messages.notFound.pageTitle,
     body,
     version: PACKAGE_METADATA.version,
     repositoryUrl: PACKAGE_METADATA.repositoryUrl,
+    locale,
+    currentUrl,
   });
 }
 
@@ -249,16 +281,23 @@ export function registerDashboardRoutes(fastify: FastifyInstance, deps: Dashboar
       if (isAuthenticatedRequest(requestHeaders(request), deps.sessionSecret)) {
         return redirect(reply, 302, '/dashboard');
       }
+      const locale = resolveRequestLocale(request, deps);
       return sendHtml(
         reply,
         200,
-        renderLoginPage({ version: PACKAGE_METADATA.version, repositoryUrl: PACKAGE_METADATA.repositoryUrl }),
+        renderLoginPage({
+          version: PACKAGE_METADATA.version,
+          repositoryUrl: PACKAGE_METADATA.repositoryUrl,
+          locale,
+          currentUrl: request.url,
+        }),
       );
     });
 
     scoped.post('/login', async (request, reply) => {
       const headers = requestHeaders(request);
       const ip = resolveClientIp(headers, request.socket.remoteAddress ?? '', deps.trustedProxy);
+      const locale = resolveRequestLocale(request, deps);
 
       const failWithGenericMessage = () =>
         sendHtml(
@@ -267,7 +306,9 @@ export function registerDashboardRoutes(fastify: FastifyInstance, deps: Dashboar
           renderLoginPage({
             version: PACKAGE_METADATA.version,
             repositoryUrl: PACKAGE_METADATA.repositoryUrl,
-            error: GENERIC_LOGIN_FAILURE_MESSAGE,
+            locale,
+            currentUrl: request.url,
+            error: messagesFor(locale).login.genericError,
           }),
         );
 
@@ -307,20 +348,26 @@ export function registerDashboardRoutes(fastify: FastifyInstance, deps: Dashboar
       }
       const host = firstHeaderValue(headers['host']) ?? '';
       const secure = isSecureRequest(headers, deps.trustedProxy);
-      return sendHtml(reply, 200, renderSitesPage({ sites: deps.sites, host, secure }));
+      const locale = resolveRequestLocale(request, deps);
+      return sendHtml(
+        reply,
+        200,
+        renderSitesPage({ sites: deps.sites, host, secure, locale, currentUrl: request.url }),
+      );
     });
 
-    scoped.get<{ Params: { site: string }; Querystring: { range?: string } }>(
+    scoped.get<{ Params: { site: string }; Querystring: { range?: string; lang?: string } }>(
       '/dashboard/:site',
       async (request, reply) => {
         const headers = requestHeaders(request);
         if (!isAuthenticatedRequest(headers, deps.sessionSecret)) {
           return redirect(reply, 302, '/login');
         }
+        const locale = resolveRequestLocale(request, deps);
 
         const matchedSite = deps.sites.find((configured) => configured === request.params.site);
         if (matchedSite === undefined) {
-          return sendHtml(reply, 404, renderNotFoundPage());
+          return sendHtml(reply, 404, renderNotFoundPage(locale, request.url));
         }
 
         const rangeKey = parseRangeKey(request.query.range);
@@ -376,6 +423,8 @@ export function registerDashboardRoutes(fastify: FastifyInstance, deps: Dashboar
           },
           version: PACKAGE_METADATA.version,
           repositoryUrl: PACKAGE_METADATA.repositoryUrl,
+          locale,
+          currentUrl: request.url,
         });
 
         return sendHtml(reply, 200, page);

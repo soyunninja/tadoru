@@ -203,6 +203,34 @@ test('reads TADORU_HOST', () => {
   });
 });
 
+test('TADORU_LANG configures the dashboard language when set to a supported locale', () => {
+  withTempDir((dataDir) => {
+    const result = loadConfig({ env: baseEnv(dataDir, { TADORU_LANG: 'es' }) });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.value.config.language, 'es');
+  });
+});
+
+test('TADORU_LANG is omitted from the config when unset, leaving Accept-Language negotiation to the request layer', () => {
+  withTempDir((dataDir) => {
+    const result = loadConfig({ env: baseEnv(dataDir) });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.value.config.language, undefined);
+    assert.equal('language' in result.value.config, false);
+  });
+});
+
+test('an unsupported TADORU_LANG value is ignored rather than rejected', () => {
+  withTempDir((dataDir) => {
+    const result = loadConfig({ env: baseEnv(dataDir, { TADORU_LANG: 'klingon' }) });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.value.config.language, undefined);
+  });
+});
+
 test('defaults to binding on loopback, not on every interface', async () => {
   // The documented deployment puts a reverse proxy in front and the systemd unit
   // grants no capabilities, so the service has no reason to accept connections

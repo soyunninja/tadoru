@@ -28,3 +28,6 @@ tadoru.config.json
 # Local agent tooling state, not part of the project
 .gga
 .pi/
+
+# CodeGraph index — per-checkout, never shared
+.codegraph/

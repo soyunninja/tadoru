@@ -20,6 +20,8 @@ import type { Config } from '../config/Config.ts';
 import { registerCollectRoutes } from './collectRoutes.ts';
 import { registerHealthRoutes } from './healthRoutes.ts';
 import { registerTrackerRoutes, readTrackerScript } from './trackerRoutes.ts';
+import { registerFontRoutes } from './fontRoutes.ts';
+import { BUNDLED_FONT } from '../assets.ts';
 import { registerAdminAuthRoutes } from './adminAuth.ts';
 import { registerDashboardRoutes } from './dashboardRoutes.ts';
 import { TokenBucketRateLimiter } from './rateLimit.ts';
@@ -139,6 +141,10 @@ export function buildServer(options: BuildServerOptions): TadoruServer {
   }
   registerTrackerRoutes(fastify, { trackerScript });
 
+  // The dashboard's own typeface, self-hosted. Missing it is cosmetic: the CSS
+  // stack falls back to a system monospace face.
+  registerFontRoutes(fastify, { font: BUNDLED_FONT });
+
   registerHealthRoutes(fastify, {
     checkDatabase: () => {
       db.prepare('SELECT 1').get();
@@ -171,6 +177,7 @@ export function buildServer(options: BuildServerOptions): TadoruServer {
     }),
     querySiteMetrics,
     clock,
+    ...(config.language !== undefined ? { configuredLocale: config.language } : {}),
   });
 
   scheduler.start();

@@ -25,3 +25,16 @@ test('renderLoginPage includes no script tags and includes the AGPL footer via t
   assert.match(page, /1\.2\.3/);
   assert.match(page, /<footer>/);
 });
+
+test('renderLoginPage translates its heading, label and submit button', () => {
+  const spanish = renderLoginPage({ version: '0.1.0', locale: 'es' }).toString();
+  assert.match(spanish, /<h1>Administración de Tadoru<\/h1>/);
+  assert.match(spanish, /<label for="password">Contraseña<\/label>/);
+  assert.match(spanish, /<button type="submit">Iniciar sesión<\/button>/);
+  assert.match(spanish, /<html lang="es">/);
+});
+
+test('renderLoginPage uses the translated page title', () => {
+  const japanese = renderLoginPage({ version: '0.1.0', locale: 'ja' }).toString();
+  assert.match(japanese, /<title>ログイン — Tadoru<\/title>/);
+});

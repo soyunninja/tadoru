@@ -10,15 +10,11 @@ import {
   type HeadlineTotals,
   type DailyVisitors,
 } from './components.ts';
+import type { Locale } from '../../i18n/Locale.ts';
+import { DEFAULT_LOCALE } from '../../i18n/Locale.ts';
+import { messagesFor } from '../../i18n/messages.ts';
 
 export type RangeKey = '7d' | '30d' | '12m' | 'today';
-
-const RANGE_LABELS: Readonly<Record<RangeKey, string>> = {
-  today: 'Today',
-  '7d': '7 days',
-  '30d': '30 days',
-  '12m': '12 months',
-};
 
 const RANGE_ORDER: readonly RangeKey[] = ['today', '7d', '30d', '12m'];
 
@@ -40,11 +36,14 @@ export interface OverviewPageOptions {
   readonly breakdowns: OverviewPageBreakdowns;
   readonly version: string;
   readonly repositoryUrl?: string;
+  readonly locale?: Locale;
+  readonly currentUrl?: string;
 }
 
-function rangeSelector(site: string, current: RangeKey): SafeHtml {
+function rangeSelector(site: string, current: RangeKey, locale: Locale): SafeHtml {
+  const rangeLabels = messagesFor(locale).overview.rangeLabels;
   const links = RANGE_ORDER.map((key) => {
-    const label = RANGE_LABELS[key];
+    const label = rangeLabels[key];
     if (key === current) {
       return html`<strong>${label}</strong>`;
     }
@@ -69,32 +68,36 @@ function hasAnyData(options: OverviewPageOptions): boolean {
 }
 
 export function renderOverviewPage(options: OverviewPageOptions): SafeHtml {
+  const locale = options.locale ?? DEFAULT_LOCALE;
+  const messages = messagesFor(locale);
   const { site, breakdowns } = options;
 
-  const header = html`<p><a href="/dashboard">&larr; All sites</a></p>
+  const header = html`<p><a href="/dashboard">&larr; ${messages.common.allSites}</a></p>
 <h1>${site}</h1>
-${rangeSelector(site, options.range)}`;
+${rangeSelector(site, options.range, locale)}`;
 
   const content = hasAnyData(options)
-    ? html`${renderHeadline(options.totals)}
-${renderVisitorChart(options.dailyVisitors)}
-${renderBreakdownTable('Campaigns', 'campaign', breakdowns.campaign)}
-${renderBreakdownTable('Top pages', 'path', breakdowns.path)}
-${renderBreakdownTable('Referrer sources', 'referrer', breakdowns.referrer)}
-${renderBreakdownTable('Countries', 'country', breakdowns.country)}
-${renderBreakdownTable('Devices', 'device', breakdowns.device)}
-${renderBreakdownTable('Browsers', 'browser', breakdowns.browser)}
-${renderBreakdownTable('Operating systems', 'os', breakdowns.os)}`
-    : html`<p>No data yet for this site in this range. Check that the tracking snippet is installed on your site — the exact snippet is shown on <a href="/dashboard">the sites page</a>.</p>`;
+    ? html`${renderHeadline(options.totals, locale)}
+${renderVisitorChart(options.dailyVisitors, locale)}
+${renderBreakdownTable(messages.breakdown.titles.campaign, 'campaign', breakdowns.campaign, locale)}
+${renderBreakdownTable(messages.breakdown.titles.path, 'path', breakdowns.path, locale)}
+${renderBreakdownTable(messages.breakdown.titles.referrer, 'referrer', breakdowns.referrer, locale)}
+${renderBreakdownTable(messages.breakdown.titles.country, 'country', breakdowns.country, locale)}
+${renderBreakdownTable(messages.breakdown.titles.device, 'device', breakdowns.device, locale)}
+${renderBreakdownTable(messages.breakdown.titles.browser, 'browser', breakdowns.browser, locale)}
+${renderBreakdownTable(messages.breakdown.titles.os, 'os', breakdowns.os, locale)}`
+    : html`<p>${messages.overview.noData} <a href="/dashboard">${messages.overview.noDataLinkText}</a>.</p>`;
 
   const body = html`${header}
 ${content}
-<p>${renderLogoutForm()}</p>`;
+<p>${renderLogoutForm(locale)}</p>`;
 
   return renderLayout({
-    title: `${site} — Tadoru`,
+    title: messages.overview.pageTitle(site),
     body,
     version: options.version,
+    locale,
     ...(options.repositoryUrl !== undefined ? { repositoryUrl: options.repositoryUrl } : {}),
+    ...(options.currentUrl !== undefined ? { currentUrl: options.currentUrl } : {}),
   });
 }
