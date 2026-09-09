@@ -183,17 +183,15 @@ export function loadConfig(options: LoadConfigOptions = {}): Result<LoadedConfig
     if (!isWellFormedCredentialHex(passwordHashEnv, PASSWORD_HASH_HEX_LENGTH)) {
       return err(
         `TADORU_ADMIN_PASSWORD_HASH is not a usable credential hash: it must be exactly ` +
-          `${PASSWORD_HASH_HEX_LENGTH} hexadecimal characters. The value in ` +
-          'deploy/tadoru.env.example is a placeholder, not a working credential. Generate a real ' +
-          'pair with: sudo tadoru reset-password',
+          `${PASSWORD_HASH_HEX_LENGTH} hexadecimal characters. A placeholder copied from the example env ` +
+          'file is not a working credential. Generate a real pair with: sudo tadoru reset-password',
       );
     }
     if (!isWellFormedCredentialHex(passwordSaltEnv, PASSWORD_SALT_HEX_LENGTH)) {
       return err(
         `TADORU_ADMIN_PASSWORD_SALT is not a usable credential salt: it must be exactly ` +
-          `${PASSWORD_SALT_HEX_LENGTH} hexadecimal characters. The value in ` +
-          'deploy/tadoru.env.example is a placeholder, not a working credential. Generate a real ' +
-          'pair with: sudo tadoru reset-password',
+          `${PASSWORD_SALT_HEX_LENGTH} hexadecimal characters. A placeholder copied from the example env ` +
+          'file is not a working credential. Generate a real pair with: sudo tadoru reset-password',
       );
     }
 

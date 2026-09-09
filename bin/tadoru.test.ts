@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseCli } from './tadoru.ts';
+import { isInvokedDirectly, parseCli } from './tadoru.ts';
 import { findPackageRootFrom } from '../src/analytics/infrastructure/packageRoot.ts';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { tmpdir } from 'node:os';
 
 test('parseCli with no arguments returns help', () => {
   assert.deepEqual(parseCli([]), { kind: 'help' });
@@ -158,4 +159,64 @@ test('install-service resolves a package root that actually contains the systemd
   const packageRoot = findPackageRootFrom(moduleDir);
   assert.notEqual(packageRoot, null);
   assert.ok(existsSync(join(packageRoot as string, 'deploy', 'tadoru.service')));
+});
+
+// ---------------------------------------------------------------------------
+// isInvokedDirectly
+//
+// npm installs a CLI by symlinking `node_modules/.bin/<name>` at the real file,
+// which is exactly what `sudo npm install -g tadoru` produces. Node resolves
+// that symlink for `import.meta.url` but leaves `process.argv[1]` as the
+// symlink path, so comparing the two directly is false on every real install
+// and the CLI exits silently having done nothing.
+// ---------------------------------------------------------------------------
+
+function withTempDir<T>(fn: (dir: string) => T): T {
+  const dir = mkdtempSync(join(tmpdir(), 'tadoru-bin-test-'));
+  try {
+    return fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('isInvokedDirectly is true when argv[1] is an npm-style symlink pointing at the module', () => {
+  withTempDir((dir) => {
+    const realFile = join(dir, 'tadoru.js');
+    const linkPath = join(dir, 'tadoru-link');
+    writeFileSync(realFile, '');
+    symlinkSync(realFile, linkPath);
+
+    assert.equal(isInvokedDirectly(linkPath, pathToFileURL(realFile).href), true);
+  });
+});
+
+test('isInvokedDirectly is true when argv[1] is the module file itself', () => {
+  withTempDir((dir) => {
+    const realFile = join(dir, 'tadoru.js');
+    writeFileSync(realFile, '');
+    assert.equal(isInvokedDirectly(realFile, pathToFileURL(realFile).href), true);
+  });
+});
+
+test('isInvokedDirectly is false when argv[1] is an unrelated file', () => {
+  withTempDir((dir) => {
+    const realFile = join(dir, 'tadoru.js');
+    const other = join(dir, 'something-else.js');
+    writeFileSync(realFile, '');
+    writeFileSync(other, '');
+    assert.equal(isInvokedDirectly(other, pathToFileURL(realFile).href), false);
+  });
+});
+
+test('isInvokedDirectly is false when there is no argv[1], as when the module is imported', () => {
+  assert.equal(isInvokedDirectly(undefined, import.meta.url), false);
+});
+
+test('isInvokedDirectly is false rather than throwing when argv[1] does not exist on disk', () => {
+  withTempDir((dir) => {
+    const realFile = join(dir, 'tadoru.js');
+    writeFileSync(realFile, '');
+    assert.equal(isInvokedDirectly(join(dir, 'gone.js'), pathToFileURL(realFile).href), false);
+  });
 });

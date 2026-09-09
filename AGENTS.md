@@ -68,7 +68,8 @@ Hexagonal, with the domain named after what the product does rather than after l
 - `src/analytics/application/` — use cases. Same import restriction.
 - `src/analytics/infrastructure/` — adapters that implement the ports.
 - `tracker/` — the browser script, bundled to `public/t.js` by esbuild.
-- `bin/tadoru.ts` — the CLI (`init`, `start`, `install-service`, `backup`, `update-geoip`).
+- `bin/tadoru.ts` — the CLI (`init`, `start`, `install-service`, `status`, `backup`, `restore`,
+  `reset-password`, `update-geoip`).
 
 Check the rule holds with:
 

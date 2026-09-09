@@ -25,8 +25,11 @@ grep -rn "OWNER" --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=pub
 
 ## Publishing
 
-`prepublishOnly` runs the typecheck, the full suite and the build, so a broken tree cannot be
-published.
+`prepublishOnly` runs the typecheck and the full suite, so a broken tree cannot be published.
+`prepack` runs the build. That split matters: `prepublishOnly` fires only on `npm publish`, so a
+build placed there let `npm pack` produce a tarball containing whatever stale `dist/` happened to
+be on disk. Every "test the tarball" check below was then testing the previous release. `prepack`
+fires for both, so a locally packed tarball is what publishing would upload.
 
 ```bash
 npm version minor
@@ -36,16 +39,25 @@ git push --follow-tags
 
 ## Test the tarball on the minimum supported Node — do not skip this
 
-Two defects reached the packaged artefact and neither was visible in development or in the test
-suite, because both only exist in the published layout: `/t.js` was not served at all, and the
-dashboard footer reported version `0.0.0`. Only installing the tarball found them.
+Three defects reached the packaged artefact and none was visible in development or in the test
+suite, because they only exist in the published layout: `/t.js` was not served at all, the
+dashboard footer reported version `0.0.0`, and the CLI exited 0 having printed nothing when run
+through npm's bin symlink — which is to say, `sudo npm install -g tadoru` installed a command
+that did nothing at all. Only installing the tarball found them.
+
+That last one is worth dwelling on, because the probe below already existed and still missed it.
+A command that prints nothing and exits 0 looks like a command that worked. Read the output of
+every probe, not just its exit code.
 
 ```bash
 npm pack
 mkdir /tmp/tadoru-probe && cd /tmp/tadoru-probe
 npm init -y && npm install /path/to/tadoru-<version>.tgz
 
+# Run it through node_modules/.bin, NOT the file it points at. npm installs a CLI as a
+# symlink, and that is the only form `sudo npm install -g tadoru` ever produces.
 node_modules/.bin/tadoru --version                       # the real version, not 0.0.0
+node_modules/.bin/tadoru --help                          # must print the command list
 TADORU_ADMIN_PASSWORD= node_modules/.bin/tadoru start     # must refuse, non-zero exit
 
 TADORU_ADMIN_PASSWORD=probe TADORU_SITES=example.com \

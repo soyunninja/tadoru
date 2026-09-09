@@ -17,7 +17,8 @@ Two different targets on purpose.
 
 - **Development** requires Node >= 22.18 (`devEngines`) and runs TypeScript natively. No build.
 - **Distribution** declares `engines: node >= 22.0.0` and compiles to `dist/` on
-  `prepublishOnly`, using `rewriteRelativeImportExtensions` so the explicit `.ts` import
+  `prepack` (not `prepublishOnly`, which never runs for `npm pack` and so would let the tarball
+  you test differ from the one you publish), using `rewriteRelativeImportExtensions` so the `.ts` import
   extensions are rewritten to `.js` on emit. Verified: the output runs on plain Node without
   type stripping.
 

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
+import { realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { findPackageRootFrom } from '../src/analytics/infrastructure/packageRoot.ts';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { currentPackageVersion } from '../src/analytics/composition.ts';
 import { runStartCommand } from '../src/analytics/cli/start.ts';
@@ -399,8 +400,36 @@ export async function main(argv: readonly string[]): Promise<number> {
   }
 }
 
-const invokedDirectly = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (invokedDirectly) {
+/**
+ * Whether this module is the program being run, rather than one being imported
+ * by a test.
+ *
+ * The obvious check — comparing `import.meta.url` against
+ * `pathToFileURL(process.argv[1])` — is wrong on every real installation. npm
+ * installs a CLI by symlinking `node_modules/.bin/tadoru` at the real file, and
+ * `sudo npm install -g tadoru` is the documented install path. Node resolves
+ * that symlink when it sets `import.meta.url`, but leaves `process.argv[1]` as
+ * the symlink path it was invoked through, so the two are never equal and the
+ * CLI exits 0 having printed nothing. Resolving both to real paths is what makes
+ * the packaged binary actually run.
+ *
+ * A missing or unreadable `argv[1]` means this is not the entry point, so it
+ * answers false rather than throwing.
+ */
+export function isInvokedDirectly(
+  argv1: string | undefined,
+  moduleUrl: string,
+  resolveRealPath: (path: string) => string = realpathSync,
+): boolean {
+  if (argv1 === undefined) return false;
+  try {
+    return resolveRealPath(argv1) === resolveRealPath(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
+
+if (isInvokedDirectly(process.argv[1], import.meta.url)) {
   main(process.argv.slice(2))
     .then((code) => {
       process.exitCode = code;
