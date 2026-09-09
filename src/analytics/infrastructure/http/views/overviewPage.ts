@@ -26,6 +26,9 @@ export interface OverviewPageBreakdowns {
   readonly browser: readonly MetricRow[];
   readonly os: readonly MetricRow[];
   readonly campaign: readonly MetricRow[];
+  readonly screen: readonly MetricRow[];
+  readonly language: readonly MetricRow[];
+  readonly colorScheme: readonly MetricRow[];
 }
 
 export interface OverviewPageOptions {
@@ -62,7 +65,10 @@ function hasAnyData(options: OverviewPageOptions): boolean {
     breakdowns.device.length === 0 &&
     breakdowns.browser.length === 0 &&
     breakdowns.os.length === 0 &&
-    breakdowns.campaign.length === 0;
+    breakdowns.campaign.length === 0 &&
+    breakdowns.screen.length === 0 &&
+    breakdowns.language.length === 0 &&
+    breakdowns.colorScheme.length === 0;
   return !(totalsAreZero && breakdownsAreEmpty);
 }
 
@@ -84,7 +90,10 @@ ${renderBreakdownTable(messages.breakdown.titles.referrer, 'referrer', breakdown
 ${renderBreakdownTable(messages.breakdown.titles.country, 'country', breakdowns.country, locale)}
 ${renderBreakdownTable(messages.breakdown.titles.device, 'device', breakdowns.device, locale)}
 ${renderBreakdownTable(messages.breakdown.titles.browser, 'browser', breakdowns.browser, locale)}
-${renderBreakdownTable(messages.breakdown.titles.os, 'os', breakdowns.os, locale)}`
+${renderBreakdownTable(messages.breakdown.titles.os, 'os', breakdowns.os, locale)}
+${renderBreakdownTable(messages.breakdown.titles.screen, 'screen', breakdowns.screen, locale)}
+${renderBreakdownTable(messages.breakdown.titles.language, 'language', breakdowns.language, locale)}
+${renderBreakdownTable(messages.breakdown.titles.colorScheme, 'colorScheme', breakdowns.colorScheme, locale)}`
     : html`<p>${messages.overview.noData} <a href="/dashboard">${messages.overview.noDataLinkText}</a>.</p>
 <p class="muted">${messages.overview.ingestDelay}</p>`;
 

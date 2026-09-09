@@ -174,7 +174,7 @@ test('events from a different day are not included in this day\'s rollup', async
   assert.equal(row.visitors, 1);
 });
 
-test('populates all seven dimension rollup tables', async () => {
+test('populates all ten dimension rollup tables', async () => {
   const db = openDatabase(':memory:');
   const repo = new SqliteEventRepository(db);
   const rollups = new SqliteRollupBuilder(db);
@@ -189,6 +189,9 @@ test('populates all seven dimension rollup tables', async () => {
       browserFamily: 'Chrome',
       osFamily: 'Android',
       utmCampaign: 'launch',
+      screenBucket: 'md',
+      lang: 'es',
+      colorScheme: 'dark',
     }),
   ]);
 
@@ -202,11 +205,44 @@ test('populates all seven dimension rollup tables', async () => {
     ['rollup_daily_browser', 'browser', 'Chrome'],
     ['rollup_daily_os', 'os', 'Android'],
     ['rollup_daily_campaign', 'campaign', 'launch'],
+    ['rollup_daily_screen', 'screen', 'md'],
+    ['rollup_daily_language', 'language', 'es'],
+    ['rollup_daily_color_scheme', 'color_scheme', 'dark'],
   ] as const) {
     const row = db.prepare(`SELECT visitors FROM ${table} WHERE day = ? AND ${column} = ?`).get(DAY, value) as
       | { visitors: number }
       | undefined;
     assert.ok(row !== undefined, `expected a row in ${table} for ${column} = ${value}`);
     assert.equal(row.visitors, 1);
+  }
+});
+
+test('a pixel hit carrying none of screen/language/colour-scheme rolls up under the empty key rather than vanishing', async () => {
+  const db = openDatabase(':memory:');
+  const repo = new SqliteEventRepository(db);
+  const rollups = new SqliteRollupBuilder(db);
+
+  // Two "noscript" pixel hits with no screen/lang/colorScheme, from
+  // different visitors, must aggregate into a single empty-key row per
+  // dimension rather than one row each or being dropped.
+  await repo.saveBatch([
+    buildEvent({ visitorId: visitor(1) }),
+    buildEvent({ visitorId: visitor(2), ts: DAY + 4_000 }),
+  ]);
+
+  await rollups.execute(DAY);
+
+  for (const [table, column] of [
+    ['rollup_daily_screen', 'screen'],
+    ['rollup_daily_language', 'language'],
+    ['rollup_daily_color_scheme', 'color_scheme'],
+  ] as const) {
+    const rows = db.prepare(`SELECT ${column} AS key, visitors FROM ${table} WHERE day = ?`).all(DAY) as {
+      key: string;
+      visitors: number;
+    }[];
+    assert.equal(rows.length, 1, `expected exactly one aggregated row in ${table}`);
+    assert.equal(rows[0]?.key, '');
+    assert.equal(rows[0]?.visitors, 2);
   }
 });

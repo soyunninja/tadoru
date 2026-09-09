@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import DatabaseConstructor from 'better-sqlite3';
 import type { Database as BetterSqlite3Database } from 'better-sqlite3';
 import { applyMigrations, ROLLUP_TABLE_NAMES } from './index.ts';
+import { ROLLUP_TABLE_ALLOW_LIST } from '../../../../domain/report/Breakdown.ts';
 
 function tableNames(db: BetterSqlite3Database): string[] {
   return db
@@ -65,6 +66,106 @@ test('the sites table enforces unique domains', () => {
   });
 });
 
+test('upgrades a database that only has migration 1 applied: the three new rollup tables appear without re-running migration 1', () => {
+  const db = new DatabaseConstructor(':memory:');
+
+  // Simulate a real installation that already ran migration 1 before the
+  // new v2 migration existed: apply only the original seven-table schema
+  // and record version 1 as applied, without going through the current
+  // `migrations` array (which would also apply v2).
+  db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, applied_at INTEGER)');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sites (
+      id INTEGER PRIMARY KEY,
+      domain TEXT UNIQUE NOT NULL,
+      created_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS events (
+      id              INTEGER PRIMARY KEY,
+      ts              INTEGER NOT NULL,
+      site_id         INTEGER NOT NULL,
+      visitor_id      BLOB    NOT NULL,
+      session_id      BLOB    NOT NULL,
+      type            TEXT    NOT NULL,
+      path            TEXT    NOT NULL,
+      referrer_source TEXT,
+      utm_source TEXT, utm_medium TEXT, utm_campaign TEXT, utm_content TEXT, utm_term TEXT,
+      country         TEXT,
+      device_type TEXT, browser TEXT, os TEXT,
+      lang TEXT, screen_bucket TEXT, color_scheme TEXT,
+      name            TEXT,
+      props           TEXT,
+      value           REAL,
+      FOREIGN KEY (site_id) REFERENCES sites(id)
+    );
+    CREATE TABLE IF NOT EXISTS salt (
+      id         INTEGER PRIMARY KEY CHECK (id = 1),
+      value      TEXT    NOT NULL,
+      rotated_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS rollup_daily_path (
+      day INTEGER NOT NULL, site_id INTEGER NOT NULL, path TEXT NOT NULL,
+      pageviews INTEGER NOT NULL, visitors INTEGER NOT NULL, sessions INTEGER NOT NULL,
+      bounces INTEGER NOT NULL, engagement_seconds INTEGER NOT NULL,
+      PRIMARY KEY (day, site_id, path)
+    );
+    CREATE TABLE IF NOT EXISTS rollup_daily_referrer (
+      day INTEGER NOT NULL, site_id INTEGER NOT NULL, referrer TEXT NOT NULL,
+      pageviews INTEGER NOT NULL, visitors INTEGER NOT NULL, sessions INTEGER NOT NULL,
+      bounces INTEGER NOT NULL, engagement_seconds INTEGER NOT NULL,
+      PRIMARY KEY (day, site_id, referrer)
+    );
+    CREATE TABLE IF NOT EXISTS rollup_daily_country (
+      day INTEGER NOT NULL, site_id INTEGER NOT NULL, country TEXT NOT NULL,
+      pageviews INTEGER NOT NULL, visitors INTEGER NOT NULL, sessions INTEGER NOT NULL,
+      bounces INTEGER NOT NULL, engagement_seconds INTEGER NOT NULL,
+      PRIMARY KEY (day, site_id, country)
+    );
+    CREATE TABLE IF NOT EXISTS rollup_daily_device (
+      day INTEGER NOT NULL, site_id INTEGER NOT NULL, device TEXT NOT NULL,
+      pageviews INTEGER NOT NULL, visitors INTEGER NOT NULL, sessions INTEGER NOT NULL,
+      bounces INTEGER NOT NULL, engagement_seconds INTEGER NOT NULL,
+      PRIMARY KEY (day, site_id, device)
+    );
+    CREATE TABLE IF NOT EXISTS rollup_daily_browser (
+      day INTEGER NOT NULL, site_id INTEGER NOT NULL, browser TEXT NOT NULL,
+      pageviews INTEGER NOT NULL, visitors INTEGER NOT NULL, sessions INTEGER NOT NULL,
+      bounces INTEGER NOT NULL, engagement_seconds INTEGER NOT NULL,
+      PRIMARY KEY (day, site_id, browser)
+    );
+    CREATE TABLE IF NOT EXISTS rollup_daily_os (
+      day INTEGER NOT NULL, site_id INTEGER NOT NULL, os TEXT NOT NULL,
+      pageviews INTEGER NOT NULL, visitors INTEGER NOT NULL, sessions INTEGER NOT NULL,
+      bounces INTEGER NOT NULL, engagement_seconds INTEGER NOT NULL,
+      PRIMARY KEY (day, site_id, os)
+    );
+    CREATE TABLE IF NOT EXISTS rollup_daily_campaign (
+      day INTEGER NOT NULL, site_id INTEGER NOT NULL, campaign TEXT NOT NULL,
+      pageviews INTEGER NOT NULL, visitors INTEGER NOT NULL, sessions INTEGER NOT NULL,
+      bounces INTEGER NOT NULL, engagement_seconds INTEGER NOT NULL,
+      PRIMARY KEY (day, site_id, campaign)
+    );
+  `);
+  db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (1, ?)').run(Date.now());
+
+  const namesBefore = tableNames(db);
+  assert.ok(!namesBefore.includes('rollup_daily_screen'), 'sanity check: v2 tables must not pre-exist');
+
+  // The real upgrade path: an existing installation restarts, and
+  // applyMigrations runs again against its already-migrated database.
+  applyMigrations(db);
+
+  const namesAfter = tableNames(db);
+  assert.ok(namesAfter.includes('rollup_daily_screen'));
+  assert.ok(namesAfter.includes('rollup_daily_language'));
+  assert.ok(namesAfter.includes('rollup_daily_color_scheme'));
+
+  const versions = (db.prepare('SELECT version FROM schema_migrations ORDER BY version').all() as { version: number }[]).map(
+    (row) => row.version,
+  );
+  assert.deepEqual(versions, [1, 2]);
+});
+
 test('each rollup table is keyed by (day, site_id, dimension) and rejects duplicates', () => {
   const db = new DatabaseConstructor(':memory:');
   applyMigrations(db);
@@ -78,4 +179,16 @@ test('each rollup table is keyed by (day, site_id, dimension) and rejects duplic
       'INSERT INTO rollup_daily_path (day, site_id, path, pageviews, visitors, sessions, bounces, engagement_seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
     ).run(1, 1, '/blog', 2, 2, 2, 0, 0);
   });
+});
+
+// The migration list must stay a frozen literal — a shipped migration records
+// which tables were created when, and deriving it would rewrite history. So it
+// cannot be generated from the breakdown allow-list; the two are kept honest
+// by this test instead. Without it, a dimension added to the allow-list but
+// forgotten in a migration passes both `npm test` and `npm run typecheck`, and
+// fails only at runtime, on a dashboard request, as `no such table`.
+test('every breakdown dimension has a rollup table created by some migration, and no migration creates a table no dimension uses', () => {
+  const created = [...ROLLUP_TABLE_NAMES].sort();
+  const required = [...ROLLUP_TABLE_ALLOW_LIST].sort();
+  assert.deepEqual(created, required);
 });

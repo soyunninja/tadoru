@@ -39,7 +39,7 @@ export class SqliteMetricsRepository implements MetricsRepository {
       .prepare(
         `
         SELECT
-          ${breakdown.dimension} AS key,
+          ${breakdown.rollupColumn} AS key,
           SUM(pageviews) AS pageviews,
           SUM(visitors) AS visitors,
           SUM(sessions) AS sessions,
@@ -47,7 +47,7 @@ export class SqliteMetricsRepository implements MetricsRepository {
           SUM(engagement_seconds) AS engagement_seconds
         FROM ${breakdown.rollupTable}
         WHERE site_id = @siteRowId AND day >= @start AND day < @end
-        GROUP BY ${breakdown.dimension}
+        GROUP BY ${breakdown.rollupColumn}
         `,
       )
       .all({ siteRowId, start: range.startTs, end: range.endTs }) as RollupRow[];

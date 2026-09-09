@@ -15,6 +15,9 @@ const emptyBreakdowns = {
   browser: [] as readonly MetricRow[],
   os: [] as readonly MetricRow[],
   campaign: [] as readonly MetricRow[],
+  screen: [] as readonly MetricRow[],
+  language: [] as readonly MetricRow[],
+  colorScheme: [] as readonly MetricRow[],
 };
 
 function baseOptions(overrides: Partial<Parameters<typeof renderOverviewPage>[0]> = {}) {
@@ -103,6 +106,44 @@ test('campaigns lead the breakdowns, ahead of pages and referrers', () => {
   const pagesAt = page.indexOf('Top pages');
   assert.ok(campaignsAt !== -1 && pagesAt !== -1, 'both sections should render');
   assert.ok(campaignsAt < pagesAt, 'Campaigns should come first');
+});
+
+test('renderOverviewPage renders the screen, language and colour scheme breakdown tables, after os', () => {
+  const page = renderOverviewPage(
+    baseOptions({
+      totals: { pageviews: 4, visitors: 2, sessions: 2, bounces: 1, engagementSeconds: 60 },
+      breakdowns: {
+        ...emptyBreakdowns,
+        os: [row('Linux', 2)],
+        screen: [row('md', 2)],
+        language: [row('es', 2)],
+        colorScheme: [row('dark', 2)],
+      },
+    }),
+  ).toString();
+
+  assert.match(page, /Screen size/);
+  assert.match(page, /Languages/);
+  assert.match(page, /Colour scheme/);
+  assert.match(page, />md</);
+  assert.match(page, />es</);
+  assert.match(page, />dark</);
+
+  const osAt = page.indexOf('Operating systems');
+  const screenAt = page.indexOf('Screen size');
+  const languageAt = page.indexOf('Languages');
+  const colorSchemeAt = page.indexOf('Colour scheme');
+  assert.ok(osAt !== -1 && screenAt !== -1 && languageAt !== -1 && colorSchemeAt !== -1);
+  assert.ok(osAt < screenAt, 'screen size should come after operating systems');
+  assert.ok(screenAt < languageAt, 'language should come after screen size');
+  assert.ok(languageAt < colorSchemeAt, 'colour scheme should come after language');
+});
+
+test('renderOverviewPage treats the screen/language/colour-scheme breakdowns as data for the empty-state check', () => {
+  const page = renderOverviewPage(
+    baseOptions({ breakdowns: { ...emptyBreakdowns, colorScheme: [row('light', 1)] } }),
+  ).toString();
+  assert.ok(!page.includes('check that the tracking snippet is installed'));
 });
 
 test('renderOverviewPage translates the section titles, range labels and page title', () => {

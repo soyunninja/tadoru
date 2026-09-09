@@ -193,7 +193,7 @@ function isoDateFromDayStart(dayStartSeconds: number): string {
   return isoString.slice(0, 10);
 }
 
-/** All seven breakdown dimensions always exist in BREAKDOWN_DIMENSIONS, so createBreakdown never fails for these fixed literals. */
+/** All ten breakdown dimensions always exist in BREAKDOWN_DIMENSIONS, so createBreakdown never fails for these fixed literals. */
 function fixedBreakdown(dimension: BreakdownDimension): Breakdown {
   const result = createBreakdown(dimension);
   if (!result.ok) {
@@ -412,14 +412,18 @@ export function registerDashboardRoutes(fastify: FastifyInstance, deps: Dashboar
         // A literal-length tuple (rather than mapping over
         // OTHER_BREAKDOWN_DIMENSIONS and destructuring the result) keeps
         // each element's type exact under `noUncheckedIndexedAccess`.
-        const [pathRows, referrerRows, countryRows, browserRows, osRows, campaignRows] = await Promise.all([
-          deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('path')),
-          deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('referrer')),
-          deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('country')),
-          deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('browser')),
-          deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('os')),
-          deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('campaign')),
-        ]);
+        const [pathRows, referrerRows, countryRows, browserRows, osRows, campaignRows, screenRows, languageRows, colorSchemeRows] =
+          await Promise.all([
+            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('path')),
+            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('referrer')),
+            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('country')),
+            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('browser')),
+            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('os')),
+            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('campaign')),
+            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('screen')),
+            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('language')),
+            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('colorScheme')),
+          ]);
 
         const days = daysInRange(range);
         const dailyVisitors = await Promise.all(
@@ -451,6 +455,9 @@ export function registerDashboardRoutes(fastify: FastifyInstance, deps: Dashboar
             browser: browserRows,
             os: osRows,
             campaign: campaignRows,
+            screen: screenRows,
+            language: languageRows,
+            colorScheme: colorSchemeRows,
           },
           version: PACKAGE_METADATA.version,
           repositoryUrl: PACKAGE_METADATA.repositoryUrl,

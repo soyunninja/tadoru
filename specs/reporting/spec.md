@@ -55,3 +55,23 @@ fixed internal allow-list.
 
 A session is one visitor's activity with no gap longer than the configured inactivity window. A
 bounce is a session with a single pageview and engagement below the threshold.
+
+### Requirement: Screen size, language and colour scheme are reportable breakdown dimensions
+
+The system SHALL expose `screen`, `language` and `colorScheme` as breakdown dimensions, each with
+its own daily rollup table (`rollup_daily_screen`, `rollup_daily_language`,
+`rollup_daily_color_scheme`), reading the raw signal already collected in `events`
+(`screen_bucket`, `lang`, `color_scheme` respectively) the same way every other dimension does.
+
+#### Scenario: A pixel hit with no client signals aggregates under one empty key
+- **GIVEN** a pixel (noscript) hit carries none of `screen_bucket`, `lang` or `color_scheme`
+- **WHEN** the daily rollups are built
+- **THEN** that hit's visitor is counted once under the empty key in each of the three rollup
+  tables, rather than being dropped or given its own row per hit
+- Verified by: `src/analytics/infrastructure/persistence/sqlite/SqliteRollupBuilder.test.ts`
+
+#### Scenario: The three dimensions resolve through the same fixed allow-list as every other dimension
+- **WHEN** `screen`, `language` or `colorScheme` is requested as a breakdown
+- **THEN** it resolves to its allow-listed rollup table and raw column, exactly like the seven
+  existing dimensions
+- Verified by: `src/analytics/domain/report/Breakdown.test.ts`

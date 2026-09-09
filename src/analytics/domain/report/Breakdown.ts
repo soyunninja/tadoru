@@ -15,6 +15,9 @@ export const BREAKDOWN_DIMENSIONS = [
   'browser',
   'os',
   'campaign',
+  'screen',
+  'language',
+  'colorScheme',
 ] as const;
 
 export type BreakdownDimension = (typeof BREAKDOWN_DIMENSIONS)[number];
@@ -31,6 +34,9 @@ const ROLLUP_TABLE_BY_DIMENSION: Readonly<Record<BreakdownDimension, string>> = 
   browser: 'rollup_daily_browser',
   os: 'rollup_daily_os',
   campaign: 'rollup_daily_campaign',
+  screen: 'rollup_daily_screen',
+  language: 'rollup_daily_language',
+  colorScheme: 'rollup_daily_color_scheme',
 };
 
 const RAW_COLUMN_BY_DIMENSION: Readonly<Record<BreakdownDimension, string>> = {
@@ -41,6 +47,29 @@ const RAW_COLUMN_BY_DIMENSION: Readonly<Record<BreakdownDimension, string>> = {
   browser: 'browser',
   os: 'os',
   campaign: 'utm_campaign',
+  screen: 'screen_bucket',
+  language: 'lang',
+  colorScheme: 'color_scheme',
+};
+
+/**
+ * The dimension's column name inside its own rollup table (see
+ * SqliteRollupBuilder's `DIMENSIONS` and migrations/index.ts's
+ * `ROLLUP_DIMENSION_COLUMN`). For most dimensions this is spelled exactly
+ * like the dimension key itself, but a SQL column cannot be camelCase the
+ * way `colorScheme` is, so that one is explicit rather than assumed.
+ */
+const ROLLUP_COLUMN_BY_DIMENSION: Readonly<Record<BreakdownDimension, string>> = {
+  path: 'path',
+  referrer: 'referrer',
+  country: 'country',
+  device: 'device',
+  browser: 'browser',
+  os: 'os',
+  campaign: 'campaign',
+  screen: 'screen',
+  language: 'language',
+  colorScheme: 'color_scheme',
 };
 
 /** Every rollup table name that a Breakdown can ever resolve to. */
@@ -49,6 +78,7 @@ export const ROLLUP_TABLE_ALLOW_LIST: readonly string[] = Object.values(ROLLUP_T
 export interface Breakdown {
   readonly dimension: BreakdownDimension;
   readonly rollupTable: string;
+  readonly rollupColumn: string;
   readonly rawColumn: string;
 }
 
@@ -59,6 +89,7 @@ export function createBreakdown(raw: string): Result<Breakdown, string> {
   return ok({
     dimension: raw,
     rollupTable: ROLLUP_TABLE_BY_DIMENSION[raw],
+    rollupColumn: ROLLUP_COLUMN_BY_DIMENSION[raw],
     rawColumn: RAW_COLUMN_BY_DIMENSION[raw],
   });
 }

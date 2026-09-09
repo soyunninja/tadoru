@@ -104,6 +104,22 @@ test('queryRollup returns an empty list for a site with no rollup data yet', asy
   assert.deepEqual(rows, []);
 });
 
+test('queryRollup reads the colorScheme dimension, whose rollup column (color_scheme) differs from its dimension key', async () => {
+  const db = openDatabase(':memory:');
+  const repo = new SqliteEventRepository(db);
+  const registry = new SqliteSiteRegistry(db);
+  const metrics = new SqliteMetricsRepository(db, registry);
+
+  await repo.saveBatch([buildEvent({ colorScheme: 'dark', visitorId: new Uint8Array(16).fill(1) })]);
+  await new SqliteRollupBuilder(db).execute(DAY);
+
+  const rows = await metrics.queryRollup(site(), range(DAY, DAY + SECONDS_PER_DAY), breakdown('colorScheme'));
+
+  const dark = rows.find((row) => row.key === 'dark');
+  assert.ok(dark !== undefined);
+  assert.equal(dark.visitors, 1);
+});
+
 test('queryRaw computes an exact distinct count directly from raw events', async () => {
   const db = openDatabase(':memory:');
   const repo = new SqliteEventRepository(db);

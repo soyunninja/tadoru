@@ -1,12 +1,7 @@
 import type { Database as BetterSqlite3Database } from 'better-sqlite3';
-
-const SECONDS_PER_DAY = 86_400;
-
-interface DimensionSpec {
-  readonly table: string;
-  readonly column: string;
-  readonly rawColumn: string;
-}
+import { BREAKDOWN_DIMENSIONS, createBreakdown } from '../../../domain/report/Breakdown.ts';
+import type { Breakdown } from '../../../domain/report/Breakdown.ts';
+import { SECONDS_PER_DAY } from '../../../domain/report/TimeRange.ts';
 
 /**
  * One rollup table per dimension. This is the whole point of the schema:
@@ -15,16 +10,21 @@ interface DimensionSpec {
  * so each table's `visitors` count is computed with its own independent
  * `COUNT(DISTINCT visitor_id)` straight from the raw `events` table — never
  * derived by summing or joining another rollup table.
+ *
+ * Derived from `BREAKDOWN_DIMENSIONS` rather than restated here. A parallel
+ * list is the failure this file used to invite: a dimension added to the
+ * allow-list but forgotten here would build no rows at all, and nothing —
+ * not the typechecker, not the suite — would say so. `Breakdown` already
+ * carries the table, the rollup column and the raw column, so there is
+ * nothing left for a second list to hold.
  */
-const DIMENSIONS: readonly DimensionSpec[] = [
-  { table: 'rollup_daily_path', column: 'path', rawColumn: 'path' },
-  { table: 'rollup_daily_referrer', column: 'referrer', rawColumn: 'referrer_source' },
-  { table: 'rollup_daily_country', column: 'country', rawColumn: 'country' },
-  { table: 'rollup_daily_device', column: 'device', rawColumn: 'device_type' },
-  { table: 'rollup_daily_browser', column: 'browser', rawColumn: 'browser' },
-  { table: 'rollup_daily_os', column: 'os', rawColumn: 'os' },
-  { table: 'rollup_daily_campaign', column: 'campaign', rawColumn: 'utm_campaign' },
-];
+const DIMENSIONS: readonly Breakdown[] = BREAKDOWN_DIMENSIONS.map((dimension) => {
+  const result = createBreakdown(dimension);
+  if (!result.ok) {
+    throw new Error(`unreachable: "${dimension}" comes from BREAKDOWN_DIMENSIONS itself`);
+  }
+  return result.value;
+});
 
 interface AggregatedRow {
   readonly site_id: number;
@@ -61,8 +61,8 @@ export class SqliteRollupBuilder {
     return Promise.resolve();
   }
 
-  #rebuildDimension(dimension: DimensionSpec, day: number, dayEnd: number): void {
-    this.#db.prepare(`DELETE FROM ${dimension.table} WHERE day = ?`).run(day);
+  #rebuildDimension(dimension: Breakdown, day: number, dayEnd: number): void {
+    this.#db.prepare(`DELETE FROM ${dimension.rollupTable} WHERE day = ?`).run(day);
 
     const rows = this.#db
       .prepare(
@@ -112,7 +112,7 @@ export class SqliteRollupBuilder {
     if (rows.length === 0) return;
 
     const insert = this.#db.prepare(`
-      INSERT INTO ${dimension.table} (day, site_id, ${dimension.column}, pageviews, visitors, sessions, bounces, engagement_seconds)
+      INSERT INTO ${dimension.rollupTable} (day, site_id, ${dimension.rollupColumn}, pageviews, visitors, sessions, bounces, engagement_seconds)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const row of rows) {

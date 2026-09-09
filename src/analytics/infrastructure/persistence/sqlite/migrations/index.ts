@@ -1,12 +1,12 @@
 import type { Database as BetterSqlite3Database } from 'better-sqlite3';
 
 /**
- * The seven per-dimension daily rollup tables. Unique visitors are NOT
- * additive across dimensions, so each one is populated independently from
- * the raw `events` table rather than derived from another rollup table —
- * see SqliteRollupBuilder.
+ * The seven per-dimension daily rollup tables created by migration 1. A
+ * shipped migration is immutable, so this list must never grow — see
+ * `ROLLUP_TABLE_NAMES_V2` and `ROLLUP_TABLE_NAMES` below for the tables
+ * added later.
  */
-export const ROLLUP_TABLE_NAMES = [
+const ROLLUP_TABLE_NAMES_V1 = [
   'rollup_daily_path',
   'rollup_daily_referrer',
   'rollup_daily_country',
@@ -16,7 +16,31 @@ export const ROLLUP_TABLE_NAMES = [
   'rollup_daily_campaign',
 ] as const;
 
-const ROLLUP_DIMENSION_COLUMN: Readonly<Record<string, string>> = {
+/**
+ * The three rollup tables added by migration 2, for the screen size,
+ * language and colour scheme signals that were already collected in
+ * `events` but had no rollup table of their own.
+ */
+const ROLLUP_TABLE_NAMES_V2 = ['rollup_daily_screen', 'rollup_daily_language', 'rollup_daily_color_scheme'] as const;
+
+/**
+ * Every per-dimension daily rollup table that exists today, regardless of
+ * which migration created it. Unique visitors are NOT additive across
+ * dimensions, so each one is populated independently from the raw `events`
+ * table rather than derived from another rollup table — see
+ * SqliteRollupBuilder.
+ */
+export const ROLLUP_TABLE_NAMES = [...ROLLUP_TABLE_NAMES_V1, ...ROLLUP_TABLE_NAMES_V2] as const;
+
+/**
+ * Keyed by the rollup table union, not by `string`. A `Record<string, string>`
+ * is an index signature, so under `noUncheckedIndexedAccess` every lookup is
+ * `string | undefined` — and a template literal interpolates `undefined`
+ * silently, emitting `undefined TEXT NOT NULL` into the DDL and failing at
+ * startup instead of at typecheck. With the union as the key, a missing entry
+ * is a compile error.
+ */
+const ROLLUP_DIMENSION_COLUMN: Readonly<Record<(typeof ROLLUP_TABLE_NAMES)[number], string>> = {
   rollup_daily_path: 'path',
   rollup_daily_referrer: 'referrer',
   rollup_daily_country: 'country',
@@ -24,9 +48,12 @@ const ROLLUP_DIMENSION_COLUMN: Readonly<Record<string, string>> = {
   rollup_daily_browser: 'browser',
   rollup_daily_os: 'os',
   rollup_daily_campaign: 'campaign',
+  rollup_daily_screen: 'screen',
+  rollup_daily_language: 'language',
+  rollup_daily_color_scheme: 'color_scheme',
 };
 
-function rollupTableSql(tableName: string): string {
+function rollupTableSql(tableName: (typeof ROLLUP_TABLE_NAMES)[number]): string {
   const dimensionColumn = ROLLUP_DIMENSION_COLUMN[tableName];
   return `
     CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -86,8 +113,19 @@ const migrations: readonly Migration[] = [
           rotated_at INTEGER NOT NULL
         );
 
-        ${ROLLUP_TABLE_NAMES.map(rollupTableSql).join('\n')}
+        ${ROLLUP_TABLE_NAMES_V1.map(rollupTableSql).join('\n')}
       `);
+    },
+  },
+  {
+    // Screen size, language and colour scheme are already collected in
+    // `events` (screen_bucket, lang, color_scheme) but had no rollup table
+    // of their own. Migration 1 is already applied on real installations
+    // (0.5.0 is published), so those new tables must arrive via a new
+    // migration rather than by editing migration 1's frozen body.
+    version: 2,
+    up: (db) => {
+      db.exec(ROLLUP_TABLE_NAMES_V2.map(rollupTableSql).join('\n'));
     },
   },
 ];

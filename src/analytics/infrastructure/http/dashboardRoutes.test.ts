@@ -341,7 +341,10 @@ test('GET /dashboard/:site?range=today reuses the headline device query for the 
   assert.equal(deviceCalls.length, 1, 'expected exactly one device-breakdown query for a 1-day range');
 
   const dimensionsQueried = new Set(querySiteMetrics.calls.map((call) => call.dimension));
-  assert.equal(dimensionsQueried.size, 7, 'expected each of the 7 breakdown dimensions to be queried exactly once');
+  assert.equal(dimensionsQueried.size, 10, 'expected each of the 10 breakdown dimensions to be queried exactly once');
+  assert.ok(dimensionsQueried.has('screen'));
+  assert.ok(dimensionsQueried.has('language'));
+  assert.ok(dimensionsQueried.has('colorScheme'));
 });
 
 test('GET /dashboard/:site with the default 7d range queries the device breakdown once per day for the chart, plus once for the full-range headline', async () => {
