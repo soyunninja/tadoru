@@ -12,6 +12,7 @@ import { readSystemdTemplate, runInstallService } from '../src/analytics/cli/ins
 import { runBackup } from '../src/analytics/cli/backup.ts';
 import { runUpdateGeoip } from '../src/analytics/cli/updateGeoip.ts';
 import { runStatusCommand, inspectDatabaseReadOnly, fetchProbeHealth } from '../src/analytics/cli/status.ts';
+import { runRestoreCommand, verifyTadoruDatabaseFile } from '../src/analytics/cli/restore.ts';
 import { loadConfig } from '../src/analytics/infrastructure/config/loadConfig.ts';
 
 const DATABASE_FILE_NAME = 'tadoru.db';
@@ -36,6 +37,12 @@ export type ParsedCommand =
   | { readonly kind: 'backup' }
   | { readonly kind: 'update-geoip' }
   | { readonly kind: 'status'; readonly json: boolean }
+  | {
+      readonly kind: 'restore';
+      readonly backupFilePath: string | undefined;
+      readonly dryRun: boolean;
+      readonly force: boolean;
+    }
   | { readonly kind: 'unknown'; readonly name: string };
 
 /**
@@ -124,6 +131,21 @@ export function parseCli(argv: readonly string[]): ParsedCommand {
       if (values['help'] === true) return { kind: 'help', command: 'status' };
       return { kind: 'status', json: values['json'] === true };
     }
+    case 'restore': {
+      const { values, positionals } = parseArgs({
+        args: rest,
+        options: { 'dry-run': { type: 'boolean' }, force: { type: 'boolean' }, help: { type: 'boolean' } },
+        strict: false,
+        allowPositionals: true,
+      });
+      if (values['help'] === true) return { kind: 'help', command: 'restore' };
+      return {
+        kind: 'restore',
+        backupFilePath: positionals[0],
+        dryRun: values['dry-run'] === true,
+        force: values['force'] === true,
+      };
+    }
     default:
       return { kind: 'unknown', name: first };
   }
@@ -142,6 +164,7 @@ function printUsage(command?: string): void {
         '  start             Start the analytics server',
         '  install-service   Prepare the machine to run Tadoru under systemd (Linux, root only)',
         '  backup            Vacuum the database into a dated backup file',
+        '  restore           Replace the live database with a backup, safely',
         '  update-geoip      Refresh the local GeoIP database',
         '  status            Report whether the server is running and the database is healthy',
         '',
@@ -164,6 +187,19 @@ function printUsage(command?: string): void {
       'and the systemd unit, then reloads systemd. Requires root, and Linux. Does not start or ' +
       'enable the service — run "sudo systemctl enable --now tadoru" yourself when ready.',
     backup: 'tadoru backup\n\nVacuums the database into a dated backup file inside the data directory.',
+    restore:
+      'tadoru restore <backup-file> [--dry-run] [--force]\n\n' +
+      'Replaces the live database with <backup-file>. Refuses to run while a server answers on the ' +
+      'configured (or auto-selected) port, refuses a file that is not a valid SQLite database, and ' +
+      'refuses one that is valid SQLite but does not carry the schema_migrations/events tables Tadoru ' +
+      'expects — restoring the wrong file must be impossible, not merely unlikely. Before replacing ' +
+      'anything it moves the current database aside to a dated file, then removes stale -wal/-shm ' +
+      'sidecar files so the restored database never starts from an inconsistent journal.\n\n' +
+      '--dry-run   Run every check and print the plan; changes nothing on disk.\n' +
+      '--force     Skip ONLY the running-server check. DANGEROUS: restoring into a database a live ' +
+      'server is writing to can corrupt both the file being replaced and the one being written, and ' +
+      'the server may keep stale data cached after the files change underneath it. Every other check ' +
+      '(file exists, is SQLite, carries the Tadoru schema) still runs.',
     'update-geoip': 'tadoru update-geoip\n\nRefreshes the local GeoIP database. Requires network access.',
     status:
       'tadoru status [--json]\n\n' +
@@ -266,6 +302,30 @@ async function runStatusCliCommand(parsed: Extract<ParsedCommand, { kind: 'statu
   );
 }
 
+async function runRestoreCliCommand(parsed: Extract<ParsedCommand, { kind: 'restore' }>): Promise<number> {
+  if (parsed.backupFilePath === undefined) {
+    console.error('Usage: tadoru restore <backup-file> [--dry-run] [--force]');
+    return 1;
+  }
+
+  const result = await runRestoreCommand(
+    { backupFilePath: parsed.backupFilePath, dryRun: parsed.dryRun, force: parsed.force },
+    {
+      loadConfig,
+      probeHealth: fetchProbeHealth,
+      verifyTadoruDatabase: verifyTadoruDatabaseFile,
+      now: () => new Date(),
+      log: (message) => console.log(message),
+    },
+  );
+
+  if (!result.ok) {
+    console.error(result.error);
+    return 1;
+  }
+  return 0;
+}
+
 export async function main(argv: readonly string[]): Promise<number> {
   const parsed = parseCli(argv);
 
@@ -288,6 +348,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       return runUpdateGeoipCommand();
     case 'status':
       return runStatusCliCommand(parsed);
+    case 'restore':
+      return runRestoreCliCommand(parsed);
     case 'unknown':
       console.error(`Unknown command: ${parsed.name}\n`);
       printUsage();

@@ -96,6 +96,37 @@ test('parseCli "status --help" returns help for status', () => {
   assert.deepEqual(parseCli(['status', '--help']), { kind: 'help', command: 'status' });
 });
 
+test('parseCli "restore <file>" with no flags returns restore defaults', () => {
+  assert.deepEqual(parseCli(['restore', '/var/lib/tadoru/tadoru-backup-x.sqlite']), {
+    kind: 'restore',
+    backupFilePath: '/var/lib/tadoru/tadoru-backup-x.sqlite',
+    dryRun: false,
+    force: false,
+  });
+});
+
+test('parseCli "restore <file> --dry-run --force"', () => {
+  assert.deepEqual(parseCli(['restore', 'backup.sqlite', '--dry-run', '--force']), {
+    kind: 'restore',
+    backupFilePath: 'backup.sqlite',
+    dryRun: true,
+    force: true,
+  });
+});
+
+test('parseCli "restore" with no file argument leaves backupFilePath undefined', () => {
+  assert.deepEqual(parseCli(['restore']), {
+    kind: 'restore',
+    backupFilePath: undefined,
+    dryRun: false,
+    force: false,
+  });
+});
+
+test('parseCli "restore --help" returns help for restore', () => {
+  assert.deepEqual(parseCli(['restore', '--help']), { kind: 'help', command: 'restore' });
+});
+
 test('parseCli with an unknown command returns unknown', () => {
   assert.deepEqual(parseCli(['frobnicate']), { kind: 'unknown', name: 'frobnicate' });
 });

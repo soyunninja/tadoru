@@ -322,6 +322,23 @@ to configure.
 **Backups are one file.** `tadoru backup` writes a dated, consistent copy; restoring is copying it
 back. That simplicity is the direct payoff of choosing SQLite.
 
+**Restoring is a command, not "copy the file back".** `tadoru restore <backup-file>` does the copy
+for you, at the moment an operator is most likely to destroy the data they meant to save:
+
+```bash
+tadoru restore /var/lib/tadoru/tadoru-backup-2026-09-08T12-34-56.sqlite
+```
+
+It refuses to run while the server is answering — restoring into a database a live process is
+writing to can corrupt both files, and this is the one guard that isn't recoverable, so `--force`
+is required to skip it. It refuses any file that isn't actually a Tadoru database, checking that it
+opens as SQLite *and* carries the tables Tadoru expects, so a mistyped path can't silently clobber
+your installation with an unrelated `.db` file. Before touching anything it moves the database
+currently in place to a dated file next to it — so restoring the wrong backup still leaves you a
+way back — and only then replaces it, removing any stale `-wal`/`-shm` files so the restored
+database never starts from an inconsistent journal. `--dry-run` runs every one of those checks for
+real and prints the plan without changing anything on disk.
+
 **A note on hardening.** Running natively means there is no container isolating the process, so
 the shipped systemd unit does that work instead: dedicated unprivileged user, no capabilities,
 `ProtectSystem=strict`, a restricted syscall filter. Check it with

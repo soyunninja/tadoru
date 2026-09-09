@@ -81,3 +81,15 @@ export async function bindPort(options: BindPortOptions): Promise<Result<BoundPo
   // Unreachable: the loop above always returns before falling off its end.
   throw new Error('bindPort: exhausted candidates without returning — this is a bug');
 }
+
+/**
+ * The ports a probe should try, in the order `bindPort` above tries them.
+ *
+ * Exported so `tadoru status` and `tadoru restore` cannot drift from where the
+ * server actually listens: a probe that scans a different range than the binder
+ * uses reports "no server answering" while one is running happily.
+ */
+export function candidatePorts(configuredPort: number | undefined): readonly number[] {
+  if (configuredPort !== undefined) return [configuredPort];
+  return Array.from({ length: AUTO_PORT_RANGE_SIZE }, (_, index) => AUTO_PORT_RANGE_START + index);
+}

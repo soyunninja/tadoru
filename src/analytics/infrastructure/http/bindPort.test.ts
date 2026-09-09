@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { bindPort, AUTO_PORT_RANGE_START, AUTO_PORT_RANGE_SIZE } from './bindPort.ts';
+import { bindPort, AUTO_PORT_RANGE_START, AUTO_PORT_RANGE_SIZE, candidatePorts } from './bindPort.ts';
 
 function addressInUseError(): NodeJS.ErrnoException {
   const error = new Error('listen EADDRINUSE') as NodeJS.ErrnoException;
@@ -115,4 +115,24 @@ test('a non-EADDRINUSE error while walking auto candidates propagates unchanged 
   );
 
   assert.deepEqual(attempts, [AUTO_PORT_RANGE_START, AUTO_PORT_RANGE_START + 1]);
+});
+
+test('the probe candidates are exactly the ports bindPort would try', async () => {
+  // A probe that scans a different range than the binder uses reports "no
+  // server answering" while one is running happily. `tadoru status` and
+  // `tadoru restore` both read this list, so it has to come from here.
+  const attempted: number[] = [];
+  await bindPort({
+    requestedPort: undefined,
+    listen: async (port) => {
+      attempted.push(port);
+      throw Object.assign(new Error('in use'), { code: 'EADDRINUSE' });
+    },
+  });
+
+  assert.deepEqual([...candidatePorts(undefined)], attempted);
+});
+
+test('a pinned port is the only candidate, matching bindPort refusing to move', () => {
+  assert.deepEqual([...candidatePorts(8443)], [8443]);
 });

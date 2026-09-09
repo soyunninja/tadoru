@@ -21,7 +21,8 @@ not rewriting anything. Nothing in here is specific to any particular coding ass
 | `browser-tracker` | What the client script may collect, and what it must refuse to |
 | `reporting` | Turning events into numbers, and why unique visitors do not add up |
 | `data-retention` | What expires, when, and what happens if that window is widened |
-| `installation` | What the service refuses to do when misconfigured on someone's VPS |
+| `installation` | Setting it up on a server, and what it refuses to do when misconfigured |
+| `operations` | Knowing whether it is healthy, and getting the data back when it is not |
 | `dashboard` | Rendering attacker-controlled values safely, and reading the numbers correctly |
 
 ## Writing a new one

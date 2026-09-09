@@ -5,7 +5,7 @@ import type { Result } from '../../shared/Result.ts';
 import { err, ok } from '../../shared/Result.ts';
 import type { LoadConfigOptions, LoadedConfig } from '../infrastructure/config/loadConfig.ts';
 import { RETENTION_WARNING_THRESHOLD_MONTHS } from '../infrastructure/config/Config.ts';
-import { AUTO_PORT_RANGE_START, AUTO_PORT_RANGE_SIZE } from '../infrastructure/http/bindPort.ts';
+import { candidatePorts } from '../infrastructure/http/bindPort.ts';
 import { SqliteSiteRegistry } from '../infrastructure/persistence/sqlite/SqliteSiteRegistry.ts';
 import type { SiteId } from '../domain/event/SiteId.ts';
 
@@ -160,11 +160,6 @@ export async function fetchProbeHealth(host: string, port: number): Promise<Heal
   }
 }
 
-/** The candidate ports to probe, in the same order `bindPort.ts` tries them when starting the server. */
-function candidatePorts(configuredPort: number | undefined): readonly number[] {
-  if (configuredPort !== undefined) return [configuredPort];
-  return Array.from({ length: AUTO_PORT_RANGE_SIZE }, (_, index) => AUTO_PORT_RANGE_START + index);
-}
 
 // ---------------------------------------------------------------------------
 // Report shape
