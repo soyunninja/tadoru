@@ -1,6 +1,6 @@
 {
   "name": "tadoru",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Cookieless, privacy-first, self-hosted web analytics. One process, one file, no consent banner.",
   "license": "AGPL-3.0-only",
   "type": "module",
