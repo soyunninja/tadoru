@@ -64,9 +64,18 @@ for the day — device, country, browser or operating system — because those a
 IP and user-agent that already feed the visitor hash. Totals SHALL NOT be summed from the path,
 referrer or campaign dimensions, where one visitor legitimately appears in several rows.
 
-**Constraint for future changes:** if device resolution ever starts using an input that is not
-part of the visitor hash, such as client hints, this guarantee breaks silently and totals inflate.
-Add the input to the hash or change how totals are computed.
+This is exact rather than approximate: a visitor id hashes the user agent, and the device is a
+function of that same string, so one id can never span two device rows.
+
+**That guarantee is enforced, not merely documented.** If device resolution ever took an input the
+hash does not — client hints, most likely — two events could share an id and land in different
+rows, and the headline would inflate with nothing failing. A test asserts the resolver is called
+with the user agent and nothing else.
+
+#### Scenario: the device resolver sees only hashed inputs
+- **WHEN** an event is recorded
+- **THEN** the device resolver is called with the user agent alone
+- Verified by: `src/analytics/application/RecordEvent.test.ts`
 
 ### Requirement: The page explains why breakdowns do not add up
 

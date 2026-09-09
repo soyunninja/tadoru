@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { existsSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { dirname, join } from 'node:path';
 import { findPackageRootFrom } from '../src/analytics/infrastructure/packageRoot.ts';
@@ -26,7 +25,12 @@ export type ParsedCommand =
       readonly dataDir: string | undefined;
       readonly port: number | undefined;
     }
-  | { readonly kind: 'install-service'; readonly dryRun: boolean }
+  | {
+      readonly kind: 'install-service';
+      readonly dryRun: boolean;
+      readonly sites: string | undefined;
+      readonly lang: string | undefined;
+    }
   | { readonly kind: 'backup' }
   | { readonly kind: 'update-geoip' }
   | { readonly kind: 'unknown'; readonly name: string };
@@ -80,12 +84,22 @@ export function parseCli(argv: readonly string[]): ParsedCommand {
     case 'install-service': {
       const { values } = parseArgs({
         args: rest,
-        options: { 'dry-run': { type: 'boolean' }, help: { type: 'boolean' } },
+        options: {
+          'dry-run': { type: 'boolean' },
+          sites: { type: 'string' },
+          lang: { type: 'string' },
+          help: { type: 'boolean' },
+        },
         strict: false,
         allowPositionals: true,
       });
       if (values['help'] === true) return { kind: 'help', command: 'install-service' };
-      return { kind: 'install-service', dryRun: values['dry-run'] === true };
+      return {
+        kind: 'install-service',
+        dryRun: values['dry-run'] === true,
+        sites: typeof values['sites'] === 'string' ? values['sites'] : undefined,
+        lang: typeof values['lang'] === 'string' ? values['lang'] : undefined,
+      };
     }
     case 'backup': {
       const { values } = parseArgs({ args: rest, options: { help: { type: 'boolean' } }, strict: false, allowPositionals: true });
@@ -113,7 +127,7 @@ function printUsage(command?: string): void {
         'Commands:',
         '  init              Interactive setup: writes tadoru.config.json and tadoru.env',
         '  start             Start the analytics server',
-        '  install-service   Render and report a systemd unit (Linux only)',
+        '  install-service   Prepare the machine to run Tadoru under systemd (Linux, root only)',
         '  backup            Vacuum the database into a dated backup file',
         '  update-geoip      Refresh the local GeoIP database',
         '',
@@ -129,9 +143,12 @@ function printUsage(command?: string): void {
 
   const perCommand: Record<string, string> = {
     start: 'tadoru start\n\nStarts the HTTP server and background scheduler using the resolved configuration.',
-    init: 'tadoru init [--force] [--domains a.com,b.com] [--data-dir ./data] [--port 8080]\n\nWrites tadoru.config.json and tadoru.env. Prompts interactively when run from a terminal.',
+    init: 'tadoru init [--force] [--domains a.com,b.com] [--data-dir ./data] [--port 3000]\n\nWrites tadoru.config.json and tadoru.env. Prompts interactively when run from a terminal.',
     'install-service':
-      'tadoru install-service [--dry-run]\n\nRenders and (unless --dry-run) installs the systemd unit. Linux only.',
+      'tadoru install-service --sites a.com,b.com [--lang en] [--dry-run]\n\n' +
+      'Creates the tadoru system user, /etc/tadoru/tadoru.env (with a generated admin password) ' +
+      'and the systemd unit, then reloads systemd. Requires root, and Linux. Does not start or ' +
+      'enable the service — run "sudo systemctl enable --now tadoru" yourself when ready.',
     backup: 'tadoru backup\n\nVacuums the database into a dated backup file inside the data directory.',
     'update-geoip': 'tadoru update-geoip\n\nRefreshes the local GeoIP database. Requires network access.',
   };
@@ -168,18 +185,22 @@ async function runInitCommand(parsed: Extract<ParsedCommand, { kind: 'init' }>):
 
 async function runInstallServiceCommand(parsed: Extract<ParsedCommand, { kind: 'install-service' }>): Promise<number> {
   const moduleDir = dirname(fileURLToPath(import.meta.url));
-  // Resolution lives in packageRoot.ts. A local copy here is how this file
-  // ended up with a depth cap and no name check, unlike the tested one.
+  // Resolution lives in packageRoot.ts: it walks without a depth cap and
+  // checks the manifest is ours, which a hand-rolled copy here would not.
   const packageRoot = findPackageRootFrom(moduleDir) ?? moduleDir;
   const templatePath = join(packageRoot, 'deploy', 'tadoru.service');
   const execPath = process.argv[1] ?? 'tadoru';
   const dataDir = process.env['TADORU_DATA_DIR'] ?? '/var/lib/tadoru';
+  const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
 
   const result = await runInstallService({
     platform: process.platform,
+    isRoot,
     dryRun: parsed.dryRun,
     execPath,
     dataDir,
+    sites: parsed.sites,
+    lang: parsed.lang,
     readTemplate: () => readSystemdTemplate(templatePath),
     log: (message) => console.log(message),
   });

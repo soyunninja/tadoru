@@ -4,7 +4,13 @@ import { randomBytes as nodeRandomBytes } from 'node:crypto';
 import type { Result } from '../../shared/Result.ts';
 import { err, ok } from '../../shared/Result.ts';
 
-const DEFAULT_PORT = 8080;
+/**
+ * Matches the port used everywhere else — the systemd env file, the Docker
+ * compose mapping, the README, and the 3000-3009 range `bindPort` walks when
+ * no port is configured. `init` proposing a different number left operators
+ * with a config file that disagreed with every example they had read.
+ */
+const DEFAULT_PORT = 3000;
 const DEFAULT_DATA_DIR = './data';
 const PASSWORD_BYTE_LENGTH = 24;
 const ENV_FILE_MODE = 0o600;
@@ -18,7 +24,13 @@ export interface InitFlags {
 export interface InitAnswers {
   readonly domains: readonly string[];
   readonly dataDir: string;
-  readonly port: number;
+  /**
+   * Only set when the operator asked for a specific port. Left out otherwise so
+   * the generated config omits `port` entirely and `bindPort` can walk
+   * 3000-3009 — writing a default here would pin a port nobody chose, and a
+   * pinned port fails rather than moving when something else holds it.
+   */
+  readonly port?: number;
 }
 
 function parseDomains(raw: string | undefined): readonly string[] {
@@ -35,12 +47,12 @@ function parseDomains(raw: string | undefined): readonly string[] {
  * eventually, from interactive prompts. Kept pure so the "what do we ask,
  * what do we default to" logic never touches a real terminal.
  */
-export function resolveInitAnswers(options: { readonly isInteractive: boolean; readonly flags: InitFlags }): InitAnswers {
+export function resolveInitAnswers(options: { readonly flags: InitFlags }): InitAnswers {
   const { flags } = options;
   return {
     domains: parseDomains(flags.domains),
     dataDir: flags.dataDir ?? DEFAULT_DATA_DIR,
-    port: flags.port ?? DEFAULT_PORT,
+    ...(flags.port !== undefined ? { port: flags.port } : {}),
   };
 }
 
@@ -58,7 +70,8 @@ export function renderEnvFileContent(adminPassword: string): string {
 }
 
 export interface ConfigFileObject {
-  readonly port: number;
+  /** Omitted unless the operator pinned one; see InitAnswers.port. */
+  readonly port?: number;
   readonly dataDir: string;
   readonly sites: readonly string[];
   readonly trustedProxy: boolean;
@@ -73,7 +86,7 @@ export interface ConfigFileObject {
  */
 export function buildConfigFileObject(answers: InitAnswers): ConfigFileObject {
   return {
-    port: answers.port,
+    ...(answers.port !== undefined ? { port: answers.port } : {}),
     dataDir: answers.dataDir,
     sites: answers.domains,
     trustedProxy: false,
@@ -90,13 +103,16 @@ export interface PromptPort {
 export async function promptInitAnswers(prompt: PromptPort): Promise<InitAnswers> {
   const domainsRaw = await prompt.question('Domains to measure (comma-separated): ');
   const dataDirRaw = (await prompt.question(`Data directory [${DEFAULT_DATA_DIR}]: `)).trim();
-  const portRaw = (await prompt.question(`Port [${DEFAULT_PORT}]: `)).trim();
-  const parsedPort = portRaw.length > 0 ? Number(portRaw) : DEFAULT_PORT;
+  // Blank means "pick one for me": the config then omits `port` and bindPort
+  // walks 3000-3009. Pinning it is the deliberate choice, not the default.
+  const portRaw = (await prompt.question(`Port [${DEFAULT_PORT}, blank to choose automatically]: `)).trim();
+  const parsedPort = portRaw.length > 0 ? Number(portRaw) : undefined;
+  const port = parsedPort !== undefined && Number.isFinite(parsedPort) ? parsedPort : undefined;
 
   return {
     domains: parseDomains(domainsRaw),
     dataDir: dataDirRaw.length > 0 ? dataDirRaw : DEFAULT_DATA_DIR,
-    port: Number.isFinite(parsedPort) ? parsedPort : DEFAULT_PORT,
+    ...(port !== undefined ? { port } : {}),
   };
 }
 
@@ -126,7 +142,7 @@ export async function runInit(options: RunInitOptions): Promise<Result<void, str
   const answers =
     options.isInteractive && options.prompt !== undefined
       ? await promptInitAnswers(options.prompt)
-      : resolveInitAnswers({ isInteractive: options.isInteractive, flags: options.flags });
+      : resolveInitAnswers({ flags: options.flags });
   const configObject = buildConfigFileObject(answers);
   const password = generateAdminPassword(options.randomBytes);
   const envContent = renderEnvFileContent(password);

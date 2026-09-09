@@ -11,6 +11,7 @@ import { SqliteEventRepository } from '../persistence/sqlite/SqliteEventReposito
 import { BatchingEventRepository } from '../persistence/sqlite/BatchingEventRepository.ts';
 import { SqliteRollupBuilder } from '../persistence/sqlite/SqliteRollupBuilder.ts';
 import { SqliteMetricsRepository } from '../persistence/sqlite/SqliteMetricsRepository.ts';
+import { SqliteSiteActivityRepository } from '../persistence/sqlite/SqliteSiteActivityRepository.ts';
 import { SqliteSiteRegistry } from '../persistence/sqlite/SqliteSiteRegistry.ts';
 import { QuerySiteMetrics } from '../../application/QuerySiteMetrics.ts';
 import { SqliteSaltProvider } from '../salt/SqliteSaltProvider.ts';
@@ -166,6 +167,11 @@ export function buildServer(options: BuildServerOptions): TadoruServer {
   // The server-rendered admin UI. `adminAuth` above owns the JSON
   // /api/admin/* endpoints; these are the HTML pages, and they share the
   // same session cookie format and the same strict login rate limit.
+  // Without this the sites page compiles and renders, but reports every site as
+  // never having received an event — the dependency is optional in
+  // dashboardRoutes so the view degrades instead of throwing.
+  const siteActivity = new SqliteSiteActivityRepository(db, siteRegistry);
+
   registerDashboardRoutes(fastify, {
     sites: config.sites,
     admin: config.admin,
@@ -176,6 +182,7 @@ export function buildServer(options: BuildServerOptions): TadoruServer {
       refillPerMinute: LOGIN_RATE_LIMIT_PER_MINUTE,
     }),
     querySiteMetrics,
+    siteActivity,
     clock,
     ...(config.language !== undefined ? { configuredLocale: config.language } : {}),
   });

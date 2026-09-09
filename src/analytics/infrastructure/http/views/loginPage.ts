@@ -17,7 +17,6 @@ export interface LoginPageOptions {
   readonly version: string;
   readonly repositoryUrl?: string;
   readonly locale?: Locale;
-  readonly currentUrl?: string;
 }
 
 export function renderLoginPage(options: LoginPageOptions): SafeHtml {
@@ -41,6 +40,5 @@ ${errorBlock}
     version: options.version,
     locale,
     ...(options.repositoryUrl !== undefined ? { repositoryUrl: options.repositoryUrl } : {}),
-    ...(options.currentUrl !== undefined ? { currentUrl: options.currentUrl } : {}),
   });
 }

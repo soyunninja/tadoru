@@ -2,12 +2,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Result } from '../shared/Result.ts';
-import { ok } from '../shared/Result.ts';
+import { ok, err } from '../shared/Result.ts';
 import { loadConfig } from './infrastructure/config/loadConfig.ts';
 import type { LoadConfigOptions, LoadedConfig } from './infrastructure/config/loadConfig.ts';
 import { buildServer } from './infrastructure/http/server.ts';
 import { findPackageRootFrom } from './infrastructure/packageRoot.ts';
 import type { BuildServerOptions, TadoruServer } from './infrastructure/http/server.ts';
+import { bindPort, AUTO_PORT_RANGE_START } from './infrastructure/http/bindPort.ts';
 
 /**
  * Reports the running package version. The directory walk itself lives in
@@ -52,8 +53,10 @@ export interface StartAppPorts {
  * The composition root for `tadoru start`: loads configuration, refusing to
  * proceed on a missing or placeholder admin password; builds the whole
  * server object graph (HTTP routes, persistence, scheduler) through
- * `buildServer`; starts listening; and logs a startup summary that never
- * includes the password hash or the session secret.
+ * `buildServer`; binds the configured port (or auto-selects one — see
+ * `bindPort.ts`) through the built server's own `listen`; and logs a
+ * startup summary that never includes the password hash or the session
+ * secret, and always names the port actually bound.
  */
 export async function startApp(overrides: Partial<StartAppPorts> = {}): Promise<Result<RunningApp, string>> {
   const ports: StartAppPorts = {
@@ -77,10 +80,22 @@ export async function startApp(overrides: Partial<StartAppPorts> = {}): Promise<
   }
 
   const server = ports.buildServer({ config });
-  await server.fastify.listen({ port: config.port, host: config.host });
+  const bound = await bindPort({
+    requestedPort: config.port,
+    listen: async (port) => {
+      await server.fastify.listen({ port, host: config.host });
+    },
+  });
+  if (!bound.ok) {
+    await server.close();
+    return err(bound.error);
+  }
 
   const version = ports.resolveVersion();
-  ports.log(`Tadoru v${version} listening on ${config.host}:${config.port}`);
+  const portNote = bound.value.autoSelected
+    ? ` (${AUTO_PORT_RANGE_START} was busy; set TADORU_PORT to pin it)`
+    : '';
+  ports.log(`Tadoru v${version} listening on ${config.host}:${bound.value.port}${portNote}`);
   ports.log(`Data directory: ${config.dataDir}`);
   ports.log(`Sites configured: ${config.sites.length}`);
 

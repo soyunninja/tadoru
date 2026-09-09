@@ -36,6 +36,11 @@ test('renderOverviewPage shows an honest empty state when there is no data at al
   assert.ok(!page.includes('<svg'));
 });
 
+test('renderOverviewPage tells the operator a new visit takes a second or two to appear', () => {
+  const page = renderOverviewPage(baseOptions()).toString();
+  assert.match(page, /take a second or two to show up/i);
+});
+
 test('renderOverviewPage renders headline totals, chart and breakdown tables when data exists', () => {
   const page = renderOverviewPage(
     baseOptions({
@@ -121,10 +126,7 @@ test('renderOverviewPage translates the empty-state sentence', () => {
   assert.match(page, /サイト一覧ページ/);
 });
 
-test('renderOverviewPage passes the current locale and URL down to the shared layout', () => {
-  const page = renderOverviewPage(
-    baseOptions({ locale: 'ja', currentUrl: '/dashboard/example.com?range=7d' }),
-  ).toString();
+test('renderOverviewPage passes the current locale down to the shared layout', () => {
+  const page = renderOverviewPage(baseOptions({ locale: 'ja' })).toString();
   assert.match(page, /<html lang="ja">/);
-  assert.match(page, /lang=ja/);
 });

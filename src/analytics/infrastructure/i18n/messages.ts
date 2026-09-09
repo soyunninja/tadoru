@@ -29,6 +29,10 @@ export interface Messages {
     readonly pageTitle: string;
     readonly heading: string;
     readonly empty: string;
+    /** Shown for a configured site that has never received an event: says so, and what to check. */
+    readonly activityNever: string;
+    /** `lastSeen` is a pre-formatted relative time ("2 minutes ago"); `totalEvents` a pre-formatted count. */
+    readonly activitySummary: (lastSeen: string, totalEvents: string) => string;
   };
   readonly notFound: {
     readonly pageTitle: string;
@@ -42,6 +46,8 @@ export interface Messages {
     /** The empty-state sentence, up to (not including) the trailing link — see `noDataLinkText`. */
     readonly noData: string;
     readonly noDataLinkText: string;
+    /** One extra sentence in the empty state: ingest buffers writes and flushes about once a second, so a just-sent test visit will not appear on an immediate reload. */
+    readonly ingestDelay: string;
   };
   readonly headline: {
     readonly visitors: string;
@@ -82,9 +88,6 @@ export interface Messages {
     readonly linkText: string;
     readonly version: (version: string) => string;
   };
-  readonly languageSwitcher: {
-    readonly label: string;
-  };
 }
 
 const en: Messages = {
@@ -103,6 +106,9 @@ const en: Messages = {
     pageTitle: 'Sites — Tadoru',
     heading: 'Sites',
     empty: 'No sites configured.',
+    activityNever:
+      'No events received yet. Check that the tracking snippet is installed, and that the domain matches exactly — including "www." if your site uses it.',
+    activitySummary: (lastSeen, totalEvents) => `Last event ${lastSeen} · ${totalEvents} events total`,
   },
   notFound: {
     pageTitle: 'Not found — Tadoru',
@@ -116,6 +122,7 @@ const en: Messages = {
     noData:
       'No data yet for this site in this range. Check that the tracking snippet is installed on your site — the exact snippet is shown on',
     noDataLinkText: 'the sites page',
+    ingestDelay: 'A new visit can take a second or two to show up here, so try reloading before assuming it failed.',
   },
   headline: {
     visitors: 'Visitors',
@@ -166,9 +173,6 @@ const en: Messages = {
     linkText: 'view the corresponding source',
     version: (version) => `(version ${version})`,
   },
-  languageSwitcher: {
-    label: 'Language',
-  },
 };
 
 const es: Messages = {
@@ -187,6 +191,9 @@ const es: Messages = {
     pageTitle: 'Sitios — Tadoru',
     heading: 'Sitios',
     empty: 'No hay sitios configurados.',
+    activityNever:
+      'Todavía no se ha recibido ningún evento. Comprueba que el fragmento de seguimiento esté instalado y que el dominio coincida exactamente — incluyendo «www.» si tu sitio lo usa.',
+    activitySummary: (lastSeen, totalEvents) => `Último evento ${lastSeen} · ${totalEvents} eventos en total`,
   },
   notFound: {
     pageTitle: 'No encontrado — Tadoru',
@@ -200,6 +207,8 @@ const es: Messages = {
     noData:
       'Todavía no hay datos para este sitio en este rango. Comprueba que el fragmento de seguimiento esté instalado en tu sitio — el fragmento exacto se muestra en',
     noDataLinkText: 'la página de sitios',
+    ingestDelay:
+      'Una visita nueva puede tardar uno o dos segundos en aparecer aquí, así que prueba a recargar antes de asumir que falló.',
   },
   headline: {
     visitors: 'Visitantes',
@@ -250,9 +259,6 @@ const es: Messages = {
     linkText: 'ver el código fuente correspondiente',
     version: (version) => `(versión ${version})`,
   },
-  languageSwitcher: {
-    label: 'Idioma',
-  },
 };
 
 const ja: Messages = {
@@ -271,6 +277,9 @@ const ja: Messages = {
     pageTitle: 'サイト — Tadoru',
     heading: 'サイト',
     empty: '設定されているサイトはありません。',
+    activityNever:
+      'まだイベントを受信していません。トラッキングスニペットが設置されているか、ドメインが「www.」を含めて正確に一致しているかを確認してください。',
+    activitySummary: (lastSeen, totalEvents) => `最終イベント: ${lastSeen} ・ 合計 ${totalEvents} 件`,
   },
   notFound: {
     pageTitle: '見つかりません — Tadoru',
@@ -284,6 +293,7 @@ const ja: Messages = {
     noData:
       'この範囲のデータはまだありません。サイトにトラッキングスニペットが設置されているか確認してください — 正確なスニペットは次のページに表示されています',
     noDataLinkText: 'サイト一覧ページ',
+    ingestDelay: '新しい訪問が表示されるまで1〜2秒かかることがあるので、失敗したと判断する前に再読み込みしてみてください。',
   },
   headline: {
     visitors: '訪問者数',
@@ -333,9 +343,6 @@ const ja: Messages = {
     prefix: 'Tadoru はフリーソフトウェアです：',
     linkText: '対応するソースコードを見る',
     version: (version) => `（バージョン ${version}）`,
-  },
-  languageSwitcher: {
-    label: '言語',
   },
 };
 

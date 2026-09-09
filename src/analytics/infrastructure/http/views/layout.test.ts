@@ -192,7 +192,7 @@ test('the bundled font has no CJK glyphs, so both font stacks fall back to syste
   }
 });
 
-test('the footer sentence and the language-switcher label are translated per locale', () => {
+test('the footer sentence is translated per locale', () => {
   const spanish = renderLayout({ title: 'x', body: html``, version: '0.1.0', locale: 'es' }).toString();
   assert.match(spanish, /Tadoru es software libre:/);
   assert.match(spanish, /ver el código fuente correspondiente/);
@@ -200,49 +200,6 @@ test('the footer sentence and the language-switcher label are translated per loc
   const japanese = renderLayout({ title: 'x', body: html``, version: '0.1.0', locale: 'ja' }).toString();
   assert.match(japanese, /Tadoru はフリーソフトウェアです：/);
   assert.match(japanese, /対応するソースコードを見る/);
-});
-
-test('the language switcher offers three links, preserving the current path and query', () => {
-  const page = renderLayout({
-    title: 'x',
-    body: html``,
-    version: '0.1.0',
-    locale: 'es',
-    currentUrl: '/dashboard/example.com?range=30d',
-  }).toString();
-
-  assert.match(page, /href="\/dashboard\/example\.com\?range=30d&(amp;)?lang=en"/);
-  assert.match(page, /href="\/dashboard\/example\.com\?range=30d&(amp;)?lang=es"/);
-  assert.match(page, /href="\/dashboard\/example\.com\?range=30d&(amp;)?lang=ja"/);
-});
-
-test('the language switcher marks the current language with aria-current="page"', () => {
-  const page = renderLayout({
-    title: 'x',
-    body: html``,
-    version: '0.1.0',
-    locale: 'ja',
-    currentUrl: '/login',
-  }).toString();
-
-  const jaLink = /<a href="[^"]*lang=ja"[^>]*>/.exec(page);
-  assert.ok(jaLink, 'expected a link to the Japanese variant');
-  assert.match(jaLink?.[0] ?? '', /aria-current="page"/);
-
-  const enLink = /<a href="[^"]*lang=en"[^>]*>/.exec(page);
-  assert.ok(enLink, 'expected a link to the English variant');
-  assert.doesNotMatch(enLink?.[0] ?? '', /aria-current="page"/);
-});
-
-test('the language switcher shows each language its own native name', () => {
-  const page = renderLayout({ title: 'x', body: html``, version: '0.1.0' }).toString();
-  assert.match(page, />English</);
-  assert.match(page, />Español</);
-  assert.match(page, />日本語</);
-});
-
-test('the language switcher defaults to a sensible URL when no current path is supplied', () => {
-  assert.doesNotThrow(() => renderLayout({ title: 'x', body: html``, version: '0.1.0' }).toString());
 });
 
 test('every page carries the app name, with the Japanese reading marked as Japanese', () => {

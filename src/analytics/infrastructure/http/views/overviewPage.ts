@@ -37,7 +37,6 @@ export interface OverviewPageOptions {
   readonly version: string;
   readonly repositoryUrl?: string;
   readonly locale?: Locale;
-  readonly currentUrl?: string;
 }
 
 function rangeSelector(site: string, current: RangeKey, locale: Locale): SafeHtml {
@@ -86,7 +85,8 @@ ${renderBreakdownTable(messages.breakdown.titles.country, 'country', breakdowns.
 ${renderBreakdownTable(messages.breakdown.titles.device, 'device', breakdowns.device, locale)}
 ${renderBreakdownTable(messages.breakdown.titles.browser, 'browser', breakdowns.browser, locale)}
 ${renderBreakdownTable(messages.breakdown.titles.os, 'os', breakdowns.os, locale)}`
-    : html`<p>${messages.overview.noData} <a href="/dashboard">${messages.overview.noDataLinkText}</a>.</p>`;
+    : html`<p>${messages.overview.noData} <a href="/dashboard">${messages.overview.noDataLinkText}</a>.</p>
+<p class="muted">${messages.overview.ingestDelay}</p>`;
 
   const body = html`${header}
 ${content}
@@ -98,6 +98,5 @@ ${content}
     version: options.version,
     locale,
     ...(options.repositoryUrl !== undefined ? { repositoryUrl: options.repositoryUrl } : {}),
-    ...(options.currentUrl !== undefined ? { currentUrl: options.currentUrl } : {}),
   });
 }

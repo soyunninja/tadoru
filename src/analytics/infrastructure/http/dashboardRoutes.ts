@@ -22,6 +22,7 @@ import { dayStart, daysInRange, SECONDS_PER_DAY } from '../../domain/report/Time
 import type { Breakdown, BreakdownDimension } from '../../domain/report/Breakdown.ts';
 import { createBreakdown } from '../../domain/report/Breakdown.ts';
 import type { MetricRow } from '../../domain/report/Metrics.ts';
+import type { SiteActivity } from '../../domain/ports/SiteActivityRepository.ts';
 import { html } from './views/escapeHtml.ts';
 import type { SafeHtml } from './views/escapeHtml.ts';
 import { renderLayout, DEFAULT_REPOSITORY_URL } from './views/layout.ts';
@@ -32,6 +33,7 @@ import { sumMetricRows, renderLogoutForm, renderTrackingSnippet } from './views/
 import type { Locale } from '../i18n/Locale.ts';
 import { resolveLocale } from '../i18n/Locale.ts';
 import { messagesFor } from '../i18n/messages.ts';
+import { formatNumber, formatRelativeTime } from '../i18n/format.ts';
 
 /**
  * The narrow surface `dashboardRoutes` needs from `QuerySiteMetrics`.
@@ -43,6 +45,16 @@ export interface QuerySiteMetricsUseCase {
   execute(site: SiteId, range: TimeRange, breakdown: Breakdown): Promise<readonly MetricRow[]>;
 }
 
+/**
+ * The narrow surface `dashboardRoutes` needs to answer "has this site ever
+ * received an event" — structurally identical to the `SiteActivityRepository`
+ * driven port (see domain/ports/SiteActivityRepository.ts), named locally the
+ * same way `QuerySiteMetricsUseCase` mirrors `MetricsRepository` above.
+ */
+export interface SiteActivityUseCase {
+  activityFor(site: SiteId): Promise<SiteActivity>;
+}
+
 export interface DashboardRoutesDependencies {
   readonly sites: readonly SiteId[];
   readonly admin: ConfiguredAdminPassword;
@@ -51,12 +63,18 @@ export interface DashboardRoutesDependencies {
   /** Dedicated to the HTML login route — a credential-guessing target, configured stricter than ingest, same as `AdminAuthRoutesDependencies.loginRateLimiter`. */
   readonly loginRateLimiter: TokenBucketRateLimiter;
   readonly querySiteMetrics: QuerySiteMetricsUseCase;
+  /** Optional so an installation that hasn't wired the adapter yet still renders — every site simply reports as never having received an event. */
+  readonly siteActivity?: SiteActivityUseCase;
   readonly clock?: Clock;
-  /** The operator's `TADORU_LANG` setting (see `loadConfig.ts`), if configured. Second in the language-resolution order, behind `?lang=` and ahead of `Accept-Language`. */
+  /** The operator's `TADORU_LANG` setting (see `loadConfig.ts`), if configured. Wins over `Accept-Language` negotiation. */
   readonly configuredLocale?: Locale;
 }
 
 const DEFAULT_CLOCK: Clock = { now: () => new Date() };
+
+const DEFAULT_SITE_ACTIVITY: SiteActivityUseCase = {
+  activityFor: () => Promise.resolve({ totalEvents: 0, lastEventTs: null }),
+};
 
 // Must match adminAuth.ts's private SESSION_VALUE_PREFIX ('admin-session')
 // exactly: that constant is not exported, so a session created by either
@@ -135,22 +153,13 @@ function requestHeaders(request: FastifyRequest): HeaderMap {
   return request.headers as HeaderMap;
 }
 
-/** Reads `lang` off a request's query string without depending on any particular Fastify Querystring generic. */
-function queryLangParam(query: unknown): string | undefined {
-  if (typeof query !== 'object' || query === null) return undefined;
-  const value = (query as Record<string, unknown>)['lang'];
-  return typeof value === 'string' ? value : undefined;
-}
-
 /**
  * Resolves the language for one request, per specs/dashboard/spec.md's i18n
- * change: `?lang=` wins, then the operator's `TADORU_LANG`
- * (`deps.configuredLocale`), then `Accept-Language` negotiation, then
- * English.
+ * change: the operator's `TADORU_LANG` (`deps.configuredLocale`) wins, then
+ * `Accept-Language` negotiation, then English.
  */
 function resolveRequestLocale(request: FastifyRequest, deps: DashboardRoutesDependencies): Locale {
   return resolveLocale({
-    queryLang: queryLangParam(request.query),
     configuredLocale: deps.configuredLocale,
     acceptLanguageHeader: firstHeaderValue(requestHeaders(request)['accept-language']),
   });
@@ -193,20 +202,40 @@ function fixedBreakdown(dimension: BreakdownDimension): Breakdown {
   return result.value;
 }
 
+/**
+ * Renders the "is it actually working" line for one site: whether anything
+ * has ever arrived, and if so when the last event landed and how many there
+ * have been in total. A site with no traffic yet is the normal first state
+ * for a freshly configured site, not an error, so it gets guidance rather
+ * than a blank.
+ */
+function renderSiteActivityLine(activity: SiteActivity, nowSeconds: number, locale: Locale): SafeHtml {
+  const messages = messagesFor(locale);
+  if (activity.lastEventTs === null) {
+    return html`${messages.sites.activityNever}`;
+  }
+  const lastSeen = formatRelativeTime(activity.lastEventTs, nowSeconds, locale);
+  const totalEvents = formatNumber(activity.totalEvents, locale);
+  return html`${messages.sites.activitySummary(lastSeen, totalEvents)}`;
+}
+
 function renderSitesPage(options: {
   readonly sites: readonly SiteId[];
   readonly host: string;
   readonly secure: boolean;
   readonly locale: Locale;
-  readonly currentUrl: string;
+  readonly nowSeconds: number;
+  readonly activityBySite: ReadonlyMap<SiteId, SiteActivity>;
 }): SafeHtml {
   const messages = messagesFor(options.locale);
-  const items = options.sites.map(
-    (siteId) => html`<li>
+  const items = options.sites.map((siteId) => {
+    const activity = options.activityBySite.get(siteId) ?? { totalEvents: 0, lastEventTs: null };
+    return html`<li>
   <h2><a href="/dashboard/${siteId}">${siteId}</a></h2>
+  <p class="muted">${renderSiteActivityLine(activity, options.nowSeconds, options.locale)}</p>
   ${renderTrackingSnippet(options.host, options.secure)}
-</li>`,
-  );
+</li>`;
+  });
 
   const listOrEmpty =
     options.sites.length === 0
@@ -223,11 +252,10 @@ ${listOrEmpty}
     version: PACKAGE_METADATA.version,
     repositoryUrl: PACKAGE_METADATA.repositoryUrl,
     locale: options.locale,
-    currentUrl: options.currentUrl,
   });
 }
 
-function renderNotFoundPage(locale: Locale, currentUrl: string): SafeHtml {
+function renderNotFoundPage(locale: Locale): SafeHtml {
   const messages = messagesFor(locale);
   const body = html`<h1>${messages.notFound.heading}</h1>
 <p>${messages.notFound.body} <a href="/dashboard">${messages.notFound.backLink}</a>.</p>`;
@@ -237,7 +265,6 @@ function renderNotFoundPage(locale: Locale, currentUrl: string): SafeHtml {
     version: PACKAGE_METADATA.version,
     repositoryUrl: PACKAGE_METADATA.repositoryUrl,
     locale,
-    currentUrl,
   });
 }
 
@@ -289,7 +316,6 @@ export function registerDashboardRoutes(fastify: FastifyInstance, deps: Dashboar
           version: PACKAGE_METADATA.version,
           repositoryUrl: PACKAGE_METADATA.repositoryUrl,
           locale,
-          currentUrl: request.url,
         }),
       );
     });
@@ -307,7 +333,6 @@ export function registerDashboardRoutes(fastify: FastifyInstance, deps: Dashboar
             version: PACKAGE_METADATA.version,
             repositoryUrl: PACKAGE_METADATA.repositoryUrl,
             locale,
-            currentUrl: request.url,
             error: messagesFor(locale).login.genericError,
           }),
         );
@@ -349,14 +374,20 @@ export function registerDashboardRoutes(fastify: FastifyInstance, deps: Dashboar
       const host = firstHeaderValue(headers['host']) ?? '';
       const secure = isSecureRequest(headers, deps.trustedProxy);
       const locale = resolveRequestLocale(request, deps);
+      const siteActivity = deps.siteActivity ?? DEFAULT_SITE_ACTIVITY;
+      const activityEntries = await Promise.all(
+        deps.sites.map(async (configuredSite) => [configuredSite, await siteActivity.activityFor(configuredSite)] as const),
+      );
+      const activityBySite = new Map(activityEntries);
+      const nowSeconds = Math.floor(clock.now().getTime() / 1000);
       return sendHtml(
         reply,
         200,
-        renderSitesPage({ sites: deps.sites, host, secure, locale, currentUrl: request.url }),
+        renderSitesPage({ sites: deps.sites, host, secure, locale, nowSeconds, activityBySite }),
       );
     });
 
-    scoped.get<{ Params: { site: string }; Querystring: { range?: string; lang?: string } }>(
+    scoped.get<{ Params: { site: string }; Querystring: { range?: string } }>(
       '/dashboard/:site',
       async (request, reply) => {
         const headers = requestHeaders(request);
@@ -367,7 +398,7 @@ export function registerDashboardRoutes(fastify: FastifyInstance, deps: Dashboar
 
         const matchedSite = deps.sites.find((configured) => configured === request.params.site);
         if (matchedSite === undefined) {
-          return sendHtml(reply, 404, renderNotFoundPage(locale, request.url));
+          return sendHtml(reply, 404, renderNotFoundPage(locale));
         }
 
         const rangeKey = parseRangeKey(request.query.range);
@@ -424,7 +455,6 @@ export function registerDashboardRoutes(fastify: FastifyInstance, deps: Dashboar
           version: PACKAGE_METADATA.version,
           repositoryUrl: PACKAGE_METADATA.repositoryUrl,
           locale,
-          currentUrl: request.url,
         });
 
         return sendHtml(reply, 200, page);

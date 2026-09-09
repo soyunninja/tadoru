@@ -2,7 +2,7 @@ import { html, raw } from './escapeHtml.ts';
 import { BUNDLED_FONT_URL } from '../../assets.ts';
 import type { SafeHtml } from './escapeHtml.ts';
 import type { Locale } from '../../i18n/Locale.ts';
-import { DEFAULT_LOCALE, SUPPORTED_LOCALES, LOCALE_NATIVE_NAMES } from '../../i18n/Locale.ts';
+import { DEFAULT_LOCALE } from '../../i18n/Locale.ts';
 import { messagesFor } from '../../i18n/messages.ts';
 
 /**
@@ -26,15 +26,8 @@ export interface LayoutOptions {
    */
   readonly version: string;
   readonly repositoryUrl?: string;
-  /** Defaults to English. Drives `<html lang>`, the footer copy and which language switcher link is marked current. */
+  /** Defaults to English. Drives `<html lang>` and the footer copy. */
   readonly locale?: Locale;
-  /**
-   * The current request's raw path + query string (e.g.
-   * `/dashboard/example.com?range=30d`), used to build the language-switcher
-   * links so switching language preserves the page and its query. Defaults
-   * to `/` when not supplied.
-   */
-  readonly currentUrl?: string;
 }
 
 // Dense, dark, numbers-reading styling. No JS at all: the CSP forbids scripts
@@ -285,51 +278,18 @@ const STYLE = `
     color: var(--muted);
     font-size: 0.78rem;
   }
-  .lang-switcher { margin: 0.4rem 0 0; }
-  .lang-switcher a { margin-right: 0.75rem; }
-  .lang-switcher a[aria-current="page"] { color: var(--fg); font-weight: 600; text-decoration: none; }
 `;
-
-/**
- * The current path/query, with `lang` set to `candidate`. `currentUrl` is a
- * path-relative request URL (e.g. `/dashboard/example.com?range=30d`), so it
- * is resolved against a throwaway base purely to reuse `URLSearchParams`'
- * parsing/serialisation — nothing about that base ever reaches the output.
- */
-function urlWithLanguage(currentUrl: string, candidate: Locale): string {
-  const url = new URL(currentUrl, 'http://tadoru.invalid');
-  url.searchParams.set('lang', candidate);
-  return `${url.pathname}${url.search}`;
-}
-
-/**
- * Three plain `<a>` links, one per supported language, each preserving the
- * current path and query while setting `lang`. No JavaScript is involved —
- * the CSP forbids scripts entirely — so switching language is a normal
- * navigation. The active language is marked with `aria-current="page"`
- * rather than rendered as inert text, so it stays a real, bookmarkable link.
- */
-function renderLanguageSwitcher(locale: Locale, currentUrl: string): SafeHtml {
-  const links = SUPPORTED_LOCALES.map((candidate) => {
-    const href = urlWithLanguage(currentUrl, candidate);
-    const isCurrent = candidate === locale;
-    const currentAttribute = isCurrent ? raw(' aria-current="page"') : raw('');
-    return html`<a href="${href}" lang="${candidate}" hreflang="${candidate}"${currentAttribute}>${LOCALE_NATIVE_NAMES[candidate]}</a>`;
-  });
-  return html`<p class="lang-switcher"><span class="sr-only">${messagesFor(locale).languageSwitcher.label}: </span>${links}</p>`;
-}
 
 /**
  * Shared HTML shell used by every dashboard page: the login page, the site
  * list and every overview page. Carries the fixed inline stylesheet, the
- * viewport meta tag, the language switcher and the AGPL network-clause
- * footer (a link to the project's corresponding source and the exact
- * running version) required by AGENTS.md invariant 10.
+ * viewport meta tag and the AGPL network-clause footer (a link to the
+ * project's corresponding source and the exact running version) required by
+ * AGENTS.md invariant 10.
  */
 export function renderLayout(options: LayoutOptions): SafeHtml {
   const repositoryUrl = options.repositoryUrl ?? DEFAULT_REPOSITORY_URL;
   const locale = options.locale ?? DEFAULT_LOCALE;
-  const currentUrl = options.currentUrl ?? '/';
   const messages = messagesFor(locale);
 
   return html`<!doctype html>
@@ -346,7 +306,6 @@ export function renderLayout(options: LayoutOptions): SafeHtml {
 <main>${options.body}</main>
 <footer>
 <p>${messages.footer.prefix} <a href="${repositoryUrl}">${messages.footer.linkText}</a> ${messages.footer.version(options.version)}.</p>
-${renderLanguageSwitcher(locale, currentUrl)}
 </footer>
 </body>
 </html>`;

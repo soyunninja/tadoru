@@ -87,3 +87,41 @@ export function formatDuration(seconds: number): string {
   const remainingSeconds = total % 60;
   return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
 }
+
+const relativeTimeFormatters = new Map<Locale, Intl.RelativeTimeFormat>();
+
+function relativeTimeFormatterFor(locale: Locale): Intl.RelativeTimeFormat {
+  const cached = relativeTimeFormatters.get(locale);
+  if (cached !== undefined) return cached;
+  // 'always' (rather than the 'auto' default) so every value renders as
+  // "N units ago" consistently, instead of Intl substituting idiomatic
+  // forms ("yesterday", "now") that would make the boundary behavior this
+  // helper is tested against harder to reason about.
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: 'always' });
+  relativeTimeFormatters.set(locale, formatter);
+  return formatter;
+}
+
+/** The largest whole unit and its magnitude for a non-negative second count, chosen so the boundary itself already rolls up to the next unit (60s -> "1 minute", not "60 seconds"). */
+function relativeUnitAndValue(diffSeconds: number): { readonly value: number; readonly unit: Intl.RelativeTimeFormatUnit } {
+  if (diffSeconds < 60) return { value: diffSeconds, unit: 'second' };
+  const diffMinutes = Math.floor(diffSeconds / 60);
+  if (diffMinutes < 60) return { value: diffMinutes, unit: 'minute' };
+  const diffHours = Math.floor(diffSeconds / 3600);
+  if (diffHours < 24) return { value: diffHours, unit: 'hour' };
+  return { value: Math.floor(diffSeconds / 86_400), unit: 'day' };
+}
+
+/**
+ * Formats an epoch-seconds timestamp relative to "now" in words ("2 minutes
+ * ago"), picking seconds/minutes/hours/days by magnitude. A timestamp at or
+ * after `nowSeconds` (clock skew, or a caller passing the wrong order) is
+ * clamped to zero elapsed seconds rather than rendered as a future-tense
+ * "in N seconds", which would read as nonsense for what is meant to be a
+ * "when did this last happen" line.
+ */
+export function formatRelativeTime(epochSeconds: number, nowSeconds: number, locale: Locale): string {
+  const diffSeconds = Math.max(0, Math.floor(nowSeconds - epochSeconds));
+  const { value, unit } = relativeUnitAndValue(diffSeconds);
+  return relativeTimeFormatterFor(locale).format(-value, unit);
+}

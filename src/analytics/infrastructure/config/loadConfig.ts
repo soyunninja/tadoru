@@ -10,7 +10,6 @@ import { isSupportedLocale } from '../i18n/Locale.ts';
 import type { Locale } from '../i18n/Locale.ts';
 import type { Config } from './Config.ts';
 import {
-  DEFAULT_PORT,
   DEFAULT_HOST,
   DEFAULT_DATA_DIR,
   DEFAULT_TRUSTED_PROXY,
@@ -120,7 +119,9 @@ export function loadConfig(options: LoadConfigOptions = {}): Result<LoadedConfig
   const configFilePath = options.configFilePath ?? join(process.cwd(), 'tadoru.config.json');
   const fileConfig = readConfigFile(configFilePath);
 
-  const port = env['TADORU_PORT'] !== undefined ? Number(env['TADORU_PORT']) : (fileConfig.port ?? DEFAULT_PORT);
+  // `undefined` here (neither layer set one) is deliberate: it means "pick a port
+  // automatically" rather than defaulting to a fixed number — see `bindPort.ts`.
+  const port = env['TADORU_PORT'] !== undefined ? Number(env['TADORU_PORT']) : fileConfig.port;
   const host = env['TADORU_HOST'] ?? fileConfig.host ?? DEFAULT_HOST;
   const dataDir = env['TADORU_DATA_DIR'] ?? fileConfig.dataDir ?? DEFAULT_DATA_DIR;
   const trustedProxy = parseBoolean(env['TADORU_TRUSTED_PROXY']) ?? fileConfig.trustedProxy ?? DEFAULT_TRUSTED_PROXY;
@@ -166,7 +167,7 @@ export function loadConfig(options: LoadConfigOptions = {}): Result<LoadedConfig
   }
 
   const config: Config = {
-    port,
+    ...(port !== undefined ? { port } : {}),
     host,
     dataDir,
     sites,

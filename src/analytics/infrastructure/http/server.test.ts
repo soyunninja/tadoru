@@ -147,3 +147,36 @@ test('the built server serves its own web font, and the CSP allows it', withServ
   const page = await server.fastify.inject({ method: 'GET', url: '/login' });
   assert.match(page.headers['content-security-policy'] as string, /font-src 'self'/);
 }));
+
+test('the sites page reports real activity, not a permanent "never received"', withServer(async (server) => {
+  // The dependency is optional in dashboardRoutes so the page degrades instead
+  // of throwing when it is absent. That means forgetting to wire the adapter
+  // here would ship a feature that silently always says "no events yet" — this
+  // is the only place that catches it.
+  await server.fastify.inject({
+    method: 'GET',
+    url: '/t.gif',
+    headers: { referer: 'https://example.com/hello' },
+  });
+
+  // Ingest buffers writes, so flush before reading.
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+
+  const login = await server.fastify.inject({
+    method: 'POST',
+    url: '/api/admin/login',
+    payload: { password: 'a-genuinely-strong-password' },
+  });
+  const cookie = login.headers['set-cookie'];
+  assert.ok(cookie, 'login should set a session cookie');
+
+  const page = await server.fastify.inject({
+    method: 'GET',
+    url: '/dashboard',
+    headers: { cookie: Array.isArray(cookie) ? cookie.join('; ') : cookie },
+  });
+
+  assert.equal(page.statusCode, 200);
+  assert.match(page.body, /events total/, 'the site should report the events it received');
+  assert.ok(!/No events received yet/.test(page.body), 'it must not still claim nothing arrived');
+}));

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatNumber, formatPercent, formatIsoDate, formatDuration } from './format.ts';
+import { formatNumber, formatPercent, formatIsoDate, formatDuration, formatRelativeTime } from './format.ts';
 
 test('formatNumber groups thousands per locale', () => {
   assert.equal(formatNumber(1234, 'en'), '1,234');
@@ -49,4 +49,38 @@ test('formatDuration renders m:ss the same regardless of locale', () => {
   assert.equal(formatDuration(5), '0:05');
   assert.equal(formatDuration(65), '1:05');
   assert.equal(formatDuration(600), '10:00');
+});
+
+const NOW = 1_700_000_000;
+
+test('formatRelativeTime renders seconds under a minute', () => {
+  assert.equal(formatRelativeTime(NOW, NOW, 'en'), '0 seconds ago');
+  assert.equal(formatRelativeTime(NOW - 30, NOW, 'en'), '30 seconds ago');
+  assert.equal(formatRelativeTime(NOW - 59, NOW, 'en'), '59 seconds ago');
+});
+
+test('formatRelativeTime renders minutes once 60 seconds have passed', () => {
+  assert.equal(formatRelativeTime(NOW - 60, NOW, 'en'), '1 minute ago');
+  assert.equal(formatRelativeTime(NOW - 120, NOW, 'en'), '2 minutes ago');
+  assert.equal(formatRelativeTime(NOW - 3_599, NOW, 'en'), '59 minutes ago');
+});
+
+test('formatRelativeTime renders hours once 60 minutes have passed', () => {
+  assert.equal(formatRelativeTime(NOW - 3_600, NOW, 'en'), '1 hour ago');
+  assert.equal(formatRelativeTime(NOW - 7_200, NOW, 'en'), '2 hours ago');
+  assert.equal(formatRelativeTime(NOW - 86_399, NOW, 'en'), '23 hours ago');
+});
+
+test('formatRelativeTime renders days once 24 hours have passed', () => {
+  assert.equal(formatRelativeTime(NOW - 86_400, NOW, 'en'), '1 day ago');
+  assert.equal(formatRelativeTime(NOW - 172_800, NOW, 'en'), '2 days ago');
+});
+
+test('formatRelativeTime translates the unit per locale', () => {
+  assert.equal(formatRelativeTime(NOW - 120, NOW, 'es'), 'hace 2 minutos');
+  assert.equal(formatRelativeTime(NOW - 120, NOW, 'ja'), '2 分前');
+});
+
+test('formatRelativeTime clamps a future timestamp instead of rendering it as "in N seconds"', () => {
+  assert.equal(formatRelativeTime(NOW + 500, NOW, 'en'), '0 seconds ago');
 });

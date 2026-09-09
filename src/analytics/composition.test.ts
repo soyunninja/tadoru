@@ -33,17 +33,41 @@ function baseConfig(overrides: Partial<Config> = {}): Config {
   };
 }
 
-function fakeTadoruServer(overrides: Partial<{ listenCalls: unknown[]; closeCalls: number }> = {}): {
+/** Like `baseConfig`, but never sets `port` at all — the "not configured" case `exactOptionalPropertyTypes` won't let `baseConfig({ port: undefined })` express. */
+function baseConfigWithoutPort(overrides: Omit<Partial<Config>, 'port'> = {}): Config {
+  return {
+    host: '127.0.0.1',
+    dataDir: './data',
+    sites: ['a.example', 'b.example'] as unknown as Config['sites'],
+    trustedProxy: false,
+    retention: { rawEventMonths: 25 },
+    session: { inactivityMinutes: 30, secret: 'top-secret-session-value' },
+    admin: { passwordHash: 'super-secret-hash', passwordSalt: 'salt' },
+    ...overrides,
+  };
+}
+
+function addressInUseError(): NodeJS.ErrnoException {
+  const error = new Error('listen EADDRINUSE') as NodeJS.ErrnoException;
+  error.code = 'EADDRINUSE';
+  return error;
+}
+
+function fakeTadoruServer(
+  overrides: Partial<{ closeCalls: number; listen: (opts: unknown) => Promise<void> }> = {},
+): {
   server: TadoruServer;
   listenCalls: readonly unknown[];
   closeCallCount: () => number;
 } {
   const listenCalls: unknown[] = [];
   let closeCalls = overrides.closeCalls ?? 0;
+  const listenImpl = overrides.listen ?? (async () => {});
   const server = {
     fastify: {
       listen: async (opts: unknown) => {
         listenCalls.push(opts);
+        await listenImpl(opts);
       },
     },
     scheduler: {},
@@ -169,6 +193,86 @@ test('startApp builds the server, listens on the configured host/port, and logs 
   assert.match(summary, /4321/);
   assert.match(summary, /\/var\/lib\/tadoru/);
   assert.match(summary, /2/); // two configured sites
+});
+
+test('startApp fails with a clear message, and closes the server, when the explicitly configured port is busy', async () => {
+  const config = baseConfig({ port: 4321 });
+  const loaded: LoadedConfig = { config, warnings: [] };
+  const { server, listenCalls, closeCallCount } = fakeTadoruServer({
+    listen: async () => {
+      throw addressInUseError();
+    },
+  });
+
+  const result = await startApp({
+    loadConfig: () => ok(loaded),
+    buildServer: () => server,
+    log: () => {},
+    logError: () => {},
+    resolveVersion: () => '1.0.0',
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.match(result.error, /4321/);
+  assert.match(result.error, /already in use/i);
+  assert.equal(listenCalls.length, 1);
+  assert.equal(closeCallCount(), 1);
+});
+
+test('startApp auto-selects the next free port when the default is busy, and says so in the startup message', async () => {
+  const config = baseConfigWithoutPort();
+  const loaded: LoadedConfig = { config, warnings: [] };
+  const logs: string[] = [];
+  let attempts = 0;
+  const { server, listenCalls } = fakeTadoruServer({
+    listen: async () => {
+      attempts += 1;
+      if (attempts === 1) throw addressInUseError();
+    },
+  });
+
+  const result = await startApp({
+    loadConfig: () => ok(loaded),
+    buildServer: () => server,
+    log: (msg) => logs.push(msg),
+    logError: () => {},
+    resolveVersion: () => '1.0.0',
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(listenCalls, [
+    { port: 3000, host: '127.0.0.1' },
+    { port: 3001, host: '127.0.0.1' },
+  ]);
+
+  const summary = logs.join('\n');
+  assert.match(summary, /3001/);
+  assert.match(summary, /3000 was busy/);
+});
+
+test('startApp fails with a clear message when every automatic candidate port is busy', async () => {
+  const config = baseConfigWithoutPort();
+  const loaded: LoadedConfig = { config, warnings: [] };
+  const { server, listenCalls } = fakeTadoruServer({
+    listen: async () => {
+      throw addressInUseError();
+    },
+  });
+
+  const result = await startApp({
+    loadConfig: () => ok(loaded),
+    buildServer: () => server,
+    log: () => {},
+    logError: () => {},
+    resolveVersion: () => '1.0.0',
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.match(result.error, /3000/);
+  assert.match(result.error, /3009/);
+  assert.equal(listenCalls.length, 10);
 });
 
 test('startApp never logs the password hash or the session secret', async () => {

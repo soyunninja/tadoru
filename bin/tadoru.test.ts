@@ -49,12 +49,31 @@ test('parseCli "init --force --domains a.com,b.com --data-dir /srv/x --port 9090
   );
 });
 
-test('parseCli "install-service" defaults dryRun to false', () => {
-  assert.deepEqual(parseCli(['install-service']), { kind: 'install-service', dryRun: false });
+test('parseCli "install-service" defaults dryRun, sites and lang', () => {
+  assert.deepEqual(parseCli(['install-service']), {
+    kind: 'install-service',
+    dryRun: false,
+    sites: undefined,
+    lang: undefined,
+  });
 });
 
 test('parseCli "install-service --dry-run"', () => {
-  assert.deepEqual(parseCli(['install-service', '--dry-run']), { kind: 'install-service', dryRun: true });
+  assert.deepEqual(parseCli(['install-service', '--dry-run']), {
+    kind: 'install-service',
+    dryRun: true,
+    sites: undefined,
+    lang: undefined,
+  });
+});
+
+test('parseCli "install-service --sites a.com,b.com --lang es"', () => {
+  assert.deepEqual(parseCli(['install-service', '--sites', 'a.com,b.com', '--lang', 'es']), {
+    kind: 'install-service',
+    dryRun: false,
+    sites: 'a.com,b.com',
+    lang: 'es',
+  });
 });
 
 test('parseCli "backup" returns the backup command', () => {

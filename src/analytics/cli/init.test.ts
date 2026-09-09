@@ -23,16 +23,14 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T> | T): Promise<T> {
 }
 
 test('resolveInitAnswers uses flags when the terminal is non-interactive', () => {
-  const answers = resolveInitAnswers({
-    isInteractive: false,
-    flags: { domains: 'example.com,other.example', dataDir: '/srv/tadoru', port: 9000 },
+  const answers = resolveInitAnswers({ flags: { domains: 'example.com,other.example', dataDir: '/srv/tadoru', port: 9000 },
   });
   assert.deepEqual(answers, { domains: ['example.com', 'other.example'], dataDir: '/srv/tadoru', port: 9000 });
 });
 
 test('resolveInitAnswers falls back to sane defaults non-interactively with no flags', () => {
-  const answers = resolveInitAnswers({ isInteractive: false, flags: {} });
-  assert.deepEqual(answers, { domains: [], dataDir: './data', port: 8080 });
+  const answers = resolveInitAnswers({ flags: {} });
+  assert.deepEqual(answers, { domains: [], dataDir: './data' });
 });
 
 test('generateAdminPassword produces a long, high-entropy string from injected randomness', () => {
@@ -49,10 +47,10 @@ test('renderEnvFileContent embeds the password and nothing else sensitive', () =
 });
 
 test('buildConfigFileObject never includes the admin password', () => {
-  const config = buildConfigFileObject({ domains: ['example.com'], dataDir: './data', port: 8080 });
+  const config = buildConfigFileObject({ domains: ['example.com'], dataDir: './data', port: 3000 });
   assert.equal(JSON.stringify(config).includes('adminPassword'), false);
   assert.deepEqual(config.sites, ['example.com']);
-  assert.equal(config.port, 8080);
+  assert.equal(config.port, 3000);
   assert.equal(config.dataDir, './data');
 });
 
@@ -91,7 +89,7 @@ test('runInit writes config and a 0600 env file, and prints the password exactly
       envPath,
       force: false,
       isInteractive: false,
-      flags: { domains: 'example.com', dataDir: dir, port: 8080 },
+      flags: { domains: 'example.com', dataDir: dir, port: 3000 },
       randomBytes: (size) => Buffer.alloc(size, 42),
       log: (msg) => logs.push(msg),
     });
@@ -140,7 +138,7 @@ test('promptInitAnswers asks for domains, data directory and port, applying defa
 
   const answers = await promptInitAnswers(fakePrompt);
 
-  assert.deepEqual(answers, { domains: ['a.example', 'b.example'], dataDir: './data', port: 8080 });
+  assert.deepEqual(answers, { domains: ['a.example', 'b.example'], dataDir: './data' });
   assert.equal(questionsAsked.length, 3);
   assert.match(questionsAsked[0] ?? '', /domain/i);
   assert.match(questionsAsked[1] ?? '', /data directory/i);
@@ -185,7 +183,7 @@ test('runInit overwrites an existing config when --force is passed', async () =>
       envPath,
       force: true,
       isInteractive: false,
-      flags: { domains: 'new.example', dataDir: dir, port: 8080 },
+      flags: { domains: 'new.example', dataDir: dir, port: 3000 },
       randomBytes: (size) => Buffer.alloc(size, 3),
       log: () => {},
     });

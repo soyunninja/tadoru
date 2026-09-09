@@ -8,15 +8,8 @@ export const SUPPORTED_LOCALES = ['en', 'es', 'ja'] as const;
 
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 
-/** Used whenever nothing else resolves a language: no `?lang=`, no `TADORU_LANG`, no usable `Accept-Language`. */
+/** Used whenever nothing else resolves a language: no `TADORU_LANG`, no usable `Accept-Language`. */
 export const DEFAULT_LOCALE: Locale = 'en';
-
-/** Each language's own name for itself, shown in the language switcher regardless of the page's current locale. */
-export const LOCALE_NATIVE_NAMES: Readonly<Record<Locale, string>> = {
-  en: 'English',
-  es: 'Español',
-  ja: '日本語',
-};
 
 export function isSupportedLocale(value: string): value is Locale {
   return (SUPPORTED_LOCALES as readonly string[]).includes(value);
@@ -92,8 +85,6 @@ export function negotiateAcceptLanguage(header: string | undefined): Locale | un
 }
 
 export interface ResolveLocaleOptions {
-  /** The `?lang=` query parameter, if present on the request. Wins over everything else when it names a supported locale. */
-  readonly queryLang?: string | undefined;
   /** The operator's `TADORU_LANG` setting, if configured — see `loadConfig.ts`. */
   readonly configuredLocale?: Locale | undefined;
   /** The request's raw `Accept-Language` header value. */
@@ -104,15 +95,11 @@ export interface ResolveLocaleOptions {
  * Resolves the language a single request should be served in, in the order
  * specs/dashboard/spec.md (via the i18n change) requires:
  *
- *   1. `?lang=` on the query string, when it names a supported locale.
- *   2. The operator's `TADORU_LANG`, if set.
- *   3. Negotiation from `Accept-Language`.
- *   4. `DEFAULT_LOCALE` (English).
+ *   1. The operator's `TADORU_LANG`, if set.
+ *   2. Negotiation from `Accept-Language`.
+ *   3. `DEFAULT_LOCALE` (English).
  */
 export function resolveLocale(options: ResolveLocaleOptions): Locale {
-  if (options.queryLang !== undefined && isSupportedLocale(options.queryLang)) {
-    return options.queryLang;
-  }
   if (options.configuredLocale !== undefined) {
     return options.configuredLocale;
   }

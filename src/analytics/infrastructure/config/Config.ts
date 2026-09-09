@@ -7,7 +7,16 @@ import type { Locale } from '../i18n/Locale.ts';
  * downstream needs to know where a value came from.
  */
 export interface Config {
-  readonly port: number;
+  /**
+   * Explicitly configured via `TADORU_PORT` or `"port"` in
+   * `tadoru.config.json`. Omitted (rather than defaulted here) when the
+   * operator never set one, so the caller that actually binds the socket
+   * can tell "pin this port" from "pick one automatically" — see
+   * `bindPort.ts`. An explicit port must never silently move: a reverse
+   * proxy on a server points at a fixed port, and binding a different one
+   * after a reboot would leave it pointing nowhere with no error anywhere.
+   */
+  readonly port?: number;
   readonly host: string;
   readonly dataDir: string;
   readonly sites: readonly SiteId[];
@@ -42,7 +51,6 @@ export interface AdminConfig {
   readonly passwordSalt: string;
 }
 
-export const DEFAULT_PORT = 8080;
 /**
  * Loopback by default. The documented deployment puts a reverse proxy in front,
  * and the service needs no capabilities of its own, so there is no reason to

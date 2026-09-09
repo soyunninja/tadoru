@@ -56,7 +56,10 @@ test('loads successfully with a real admin password and defaults everything else
     const result = loadConfig({ env: baseEnv(dataDir) });
     assert.equal(result.ok, true);
     if (!result.ok) return;
-    assert.equal(result.value.config.port, 8080);
+    // Left unset rather than defaulted: bindPort.ts, not loadConfig, decides which
+    // port to try when the operator never configured one.
+    assert.equal(result.value.config.port, undefined);
+    assert.equal('port' in result.value.config, false);
     assert.equal(result.value.config.host, '127.0.0.1');
     assert.equal(result.value.config.trustedProxy, false);
     assert.equal(result.value.config.retention.rawEventMonths, 25);

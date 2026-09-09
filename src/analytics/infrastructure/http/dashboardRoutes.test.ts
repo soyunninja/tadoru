@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import { registerDashboardRoutes } from './dashboardRoutes.ts';
-import type { QuerySiteMetricsUseCase } from './dashboardRoutes.ts';
+import type { QuerySiteMetricsUseCase, SiteActivityUseCase } from './dashboardRoutes.ts';
+import type { SiteActivity } from '../../domain/ports/SiteActivityRepository.ts';
 import { registerAdminAuthRoutes, hashPassword, SESSION_COOKIE_NAME } from './adminAuth.ts';
 import { TokenBucketRateLimiter } from './rateLimit.ts';
 import type { SiteId } from '../../domain/event/SiteId.ts';
@@ -30,10 +31,25 @@ class FakeQuerySiteMetrics implements QuerySiteMetricsUseCase {
   }
 }
 
+class FakeSiteActivity implements SiteActivityUseCase {
+  readonly calls: SiteId[] = [];
+  readonly #activityBySite: Partial<Record<SiteId, SiteActivity>>;
+
+  constructor(activityBySite: Partial<Record<SiteId, SiteActivity>> = {}) {
+    this.#activityBySite = activityBySite;
+  }
+
+  async activityFor(siteId: SiteId): Promise<SiteActivity> {
+    this.calls.push(siteId);
+    return this.#activityBySite[siteId] ?? { totalEvents: 0, lastEventTs: null };
+  }
+}
+
 interface BuildAppOptions {
   readonly password?: string;
   readonly sites?: readonly SiteId[];
   readonly querySiteMetrics?: QuerySiteMetricsUseCase;
+  readonly siteActivity?: SiteActivityUseCase;
   readonly loginCapacity?: number;
   readonly trustedProxy?: boolean;
   readonly now?: Date;
@@ -63,6 +79,7 @@ function buildApp(options: BuildAppOptions = {}): { fastify: FastifyInstance; pa
     trustedProxy: options.trustedProxy ?? false,
     loginRateLimiter,
     querySiteMetrics: options.querySiteMetrics ?? new FakeQuerySiteMetrics(),
+    siteActivity: options.siteActivity ?? new FakeSiteActivity(),
     ...(options.now !== undefined ? { clock: { now: () => options.now as Date } } : {}),
     ...(options.configuredLocale !== undefined ? { configuredLocale: options.configuredLocale } : {}),
   });
@@ -208,6 +225,49 @@ test('GET /dashboard lists every configured site with a copyable snippet built f
   assert.match(response.payload, /two\.example/);
   assert.match(response.payload, /admin\.example\.com\/t\.js/);
   assert.match(response.payload, /admin\.example\.com\/t\.gif/);
+});
+
+test('GET /dashboard shows an honest activity line for a site that has never received an event', async () => {
+  const { fastify, passwordUsed } = buildApp({ sites: [site('never-visited.example')] });
+  const cookie = await loginAndGetCookie(fastify, passwordUsed);
+  const response = await fastify.inject({ method: 'GET', url: '/dashboard', headers: { cookie } });
+  assert.equal(response.statusCode, 200);
+  assert.match(response.payload, /no events received yet/i);
+  assert.match(response.payload, /tracking snippet is installed/i);
+  assert.match(response.payload, /domain matches exactly/i);
+});
+
+test('GET /dashboard shows the relative time of the last event and the total count for a site with events', async () => {
+  const activeSite = site('active.example');
+  const now = new Date('2026-01-07T12:00:00Z');
+  const lastEventTs = Math.floor(now.getTime() / 1000) - 120; // 2 minutes ago
+  const siteActivity = new FakeSiteActivity({ [activeSite]: { totalEvents: 42, lastEventTs } });
+  const { fastify, passwordUsed } = buildApp({ sites: [activeSite], siteActivity, now });
+  const cookie = await loginAndGetCookie(fastify, passwordUsed);
+
+  const response = await fastify.inject({ method: 'GET', url: '/dashboard', headers: { cookie } });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.payload, /2 minutes ago/);
+  assert.match(response.payload, /42/);
+});
+
+test('GET /dashboard renders an activity line for every configured site', async () => {
+  const siteA = site('a.example');
+  const siteB = site('b.example');
+  const now = new Date('2026-01-07T12:00:00Z');
+  const siteActivity = new FakeSiteActivity({
+    [siteA]: { totalEvents: 3, lastEventTs: Math.floor(now.getTime() / 1000) - 3_600 },
+  });
+  const { fastify, passwordUsed } = buildApp({ sites: [siteA, siteB], siteActivity, now });
+  const cookie = await loginAndGetCookie(fastify, passwordUsed);
+
+  const response = await fastify.inject({ method: 'GET', url: '/dashboard', headers: { cookie } });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(siteActivity.calls.length, 2);
+  assert.match(response.payload, /1 hour ago/); // siteA, has events
+  assert.match(response.payload, /no events received yet/i); // siteB, never seen
 });
 
 test('GET /dashboard/:site checks authentication before revealing whether the site exists (anonymous caller learns nothing)', async () => {
@@ -360,41 +420,28 @@ test('every rendered page links to the project repository and shows the running 
   assert.match(response.payload, /0\.1\.0/);
 });
 
-test('with no ?lang=, no configured locale and no Accept-Language, the dashboard defaults to English', async () => {
+test('with no configured locale and no Accept-Language, the dashboard defaults to English', async () => {
   const { fastify } = buildApp();
   const response = await fastify.inject({ method: 'GET', url: '/login' });
   assert.match(response.payload, /<html lang="en">/);
   assert.match(response.payload, /<h1>Tadoru admin<\/h1>/);
 });
 
-test('?lang= on the query string selects the page language', async () => {
-  const { fastify } = buildApp();
-  const response = await fastify.inject({ method: 'GET', url: '/login?lang=es' });
-  assert.match(response.payload, /<html lang="es">/);
-  assert.match(response.payload, /<h1>Administración de Tadoru<\/h1>/);
-});
-
-test('an unsupported ?lang= value is ignored, falling through to the next layer', async () => {
-  const { fastify } = buildApp();
-  const response = await fastify.inject({
-    method: 'GET',
-    url: '/login?lang=klingon',
-    headers: { 'accept-language': 'ja' },
-  });
-  assert.match(response.payload, /<html lang="ja">/);
-});
-
-test('the operator\'s configured locale (TADORU_LANG) is used when no ?lang= is present', async () => {
+test('the operator\'s configured locale (TADORU_LANG) is used', async () => {
   const { fastify } = buildApp({ configuredLocale: 'ja' });
   const response = await fastify.inject({ method: 'GET', url: '/login' });
   assert.match(response.payload, /<html lang="ja">/);
   assert.match(response.payload, /<h1>Tadoru 管理画面<\/h1>/);
 });
 
-test('?lang= wins over the configured locale', async () => {
+test('the configured locale wins over Accept-Language', async () => {
   const { fastify } = buildApp({ configuredLocale: 'ja' });
-  const response = await fastify.inject({ method: 'GET', url: '/login?lang=es' });
-  assert.match(response.payload, /<html lang="es">/);
+  const response = await fastify.inject({
+    method: 'GET',
+    url: '/login',
+    headers: { 'accept-language': 'es' },
+  });
+  assert.match(response.payload, /<html lang="ja">/);
 });
 
 test('Accept-Language negotiates a language when nothing else is set', async () => {
@@ -427,44 +474,24 @@ test('a malformed Accept-Language header never breaks the response, and falls ba
 });
 
 test('the sites page, the overview page and the 404 page are all translated', async () => {
-  const { fastify, passwordUsed } = buildApp({ sites: [site('example.com')] });
+  const { fastify, passwordUsed } = buildApp({ sites: [site('example.com')], configuredLocale: 'es' });
   const cookie = await loginAndGetCookie(fastify, passwordUsed);
 
-  const sitesPage = await fastify.inject({ method: 'GET', url: '/dashboard?lang=es', headers: { cookie } });
+  const sitesPage = await fastify.inject({ method: 'GET', url: '/dashboard', headers: { cookie } });
   assert.match(sitesPage.payload, /<h1>Sitios<\/h1>/);
 
   const overviewPage = await fastify.inject({
     method: 'GET',
-    url: '/dashboard/example.com?lang=es',
+    url: '/dashboard/example.com',
     headers: { cookie },
   });
   assert.match(overviewPage.payload, /Todos los sitios/);
 
   const notFoundPage = await fastify.inject({
     method: 'GET',
-    url: '/dashboard/not-configured.example?lang=es',
+    url: '/dashboard/not-configured.example',
     headers: { cookie },
   });
   assert.equal(notFoundPage.statusCode, 404);
   assert.match(notFoundPage.payload, /<h1>No encontrado<\/h1>/);
-});
-
-test('the overview page preserves the range query when switching language', async () => {
-  const { fastify, passwordUsed } = buildApp({ sites: [site('example.com')] });
-  const cookie = await loginAndGetCookie(fastify, passwordUsed);
-  const response = await fastify.inject({
-    method: 'GET',
-    url: '/dashboard/example.com?range=30d',
-    headers: { cookie },
-  });
-  assert.match(response.payload, /href="\/dashboard\/example\.com\?range=30d&(amp;)?lang=es"/);
-});
-
-test('the language switcher marks the active language and offers the other two', async () => {
-  const { fastify } = buildApp();
-  const response = await fastify.inject({ method: 'GET', url: '/login' });
-  assert.match(response.payload, />English</);
-  assert.match(response.payload, />Español</);
-  assert.match(response.payload, />日本語</);
-  assert.match(response.payload, /aria-current="page"/);
 });

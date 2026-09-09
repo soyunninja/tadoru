@@ -1,6 +1,7 @@
 {
   "$comment": "Copy to tadoru.config.json. Every value here can also be set as an environment variable (TADORU_PORT, TADORU_SITES, ...). Environment variables win over this file.",
 
+  "$comment_port": "Set explicitly, this port is pinned: Tadoru refuses to start rather than silently move to another one if it is busy — needed because a reverse proxy or systemd unit may point at it by number. Omit \"port\" (and TADORU_PORT) to have Tadoru pick one automatically instead: it tries 3000, then 3001, 3002 ... up to 3009, and binds the first free one.",
   "port": 3000,
   "dataDir": "./data",
 
@@ -24,5 +25,7 @@
   "admin": {
     "$comment": "Never commit a password. Set TADORU_ADMIN_PASSWORD in the environment instead; the server refuses to start without it.",
     "passwordHash": null
-  }
+  },
+
+  "$comment_language": "The dashboard language (en, es or ja) is environment-only: set TADORU_LANG to fix it, otherwise it follows each visitor's Accept-Language header."
 }

@@ -34,46 +34,264 @@ legal advice.
 
 ---
 
-## Install
+## Try it on your own computer first
 
-You need a server with Node 22 or newer and a domain pointing at it. Node 20 reached the end of
-its maintenance window in April 2026, so it receives no security updates and is not supported.
+Before touching a server, run it locally. Nothing is installed system-wide and you can delete it
+afterwards by deleting one folder. You need [Node.js](https://nodejs.org) 22 or newer — check with
+`node -v`.
+
+```bash
+npm install -g tadoru
+
+TADORU_ADMIN_PASSWORD=test1234 \
+TADORU_SITES=example.com \
+TADORU_DATA_DIR=./tadoru-data \
+  tadoru start
+```
+
+Open <http://127.0.0.1:3000> and log in with `test1234`. The dashboard will be empty, which is
+correct — nothing has visited yet.
+
+*If something else on your machine already has port 3000 — a development server, usually —
+Tadoru notices and tries 3001, 3002, and so on up to 3009 until it finds a free one. The startup
+line printed in your terminal always names the port it actually bound, e.g. `listening on
+127.0.0.1:3001 (3000 was busy; set TADORU_PORT to pin it)` — use that number below instead of
+3000 if it differs.*
+
+To see it record something, leave that running and in another terminal:
+
+```bash
+curl -H 'Referer: https://example.com/hello' http://127.0.0.1:3000/t.gif
+```
+
+Reload the dashboard and there is your first visit. Press `Ctrl+C` in the first terminal to stop,
+then `rm -rf ./tadoru-data` to remove everything it wrote.
+
+---
+
+## Install on a server
+
+If you already run servers, this is the whole thing:
 
 ```bash
 sudo npm install -g tadoru
-tadoru init                  # asks for your domains, generates an admin password
-sudo tadoru install-service  # creates the user and the systemd unit
+sudo tadoru install-service --sites example.com,other.dev
+sudo systemctl enable --now tadoru
 ```
 
-Then put a reverse proxy in front for TLS. With [Caddy][caddy] that is two lines:
+`install-service` creates the `tadoru` system user, writes `/etc/tadoru/tadoru.env` with a freshly
+generated admin password (printed once — write it down), writes the systemd unit, and reloads
+systemd. It never starts or enables the service itself: that stays a separate, explicit step, which
+is what `systemctl enable --now` above is. Re-running `install-service` is safe — it never
+overwrites an existing `tadoru.env`, so your admin password never changes underneath you.
 
-```caddy
-tadoru.example.com {
+Then a reverse proxy for HTTPS, and the snippet on your site. Both are in the walkthrough below.
+
+---
+
+## Step by step, assuming nothing
+
+This section explains every step and every word. Skip it if the three commands above were enough.
+
+### What you need before starting
+
+**A server that stays on.** A cheap VPS is fine — Tadoru uses about 100 MB of memory and one small
+file for storage, so the smallest plan any provider sells will do. Hetzner, DigitalOcean, OVH and
+Scaleway all rent one for a few euros a month. When you create it, choose **Ubuntu** or **Debian**
+if you are unsure; the commands below assume one of those.
+
+**A domain name.** You will point a subdomain like `stats.yoursite.com` at the server, so the
+dashboard has an address. If your site already has a domain, you can use a subdomain of it and pay
+nothing extra.
+
+**A way to connect to the server.** Your provider gives you an IP address and a password or key.
+You connect from your own terminal with `ssh root@THE-IP-ADDRESS`. Everything below is typed in
+that connection, not on your own computer.
+
+### 1. Install Node.js
+
+Tadoru is a Node.js program, so the server needs Node 22 or newer. Check what is there:
+
+```bash
+node -v
+```
+
+If that prints nothing, or a number below `v22`, install it:
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+Run `node -v` again. You want to see `v22` or higher.
+
+*Node 20 and older are not supported. Node 20 stopped receiving security updates in April 2026, and
+running a public service on an unpatched runtime is a bad trade.*
+
+### 2. Install Tadoru
+
+```bash
+sudo npm install -g tadoru
+```
+
+`npm` is Node's package installer. `-g` means "install it for the whole machine", so the `tadoru`
+command works anywhere. Check it landed:
+
+```bash
+tadoru --version
+```
+
+### 3. Set it up
+
+Replace `example.com` with the domain of the site you want to measure. You can list several,
+separated by commas and no spaces.
+
+```bash
+sudo tadoru install-service --sites example.com
+```
+
+This prints a list of what it did, ending with a password. **Copy that password somewhere safe
+now** — it is shown once and never again. It is how you log into the dashboard.
+
+If you want to see what it would do without doing it, add `--dry-run` first.
+
+### 4. Start it
+
+```bash
+sudo systemctl enable --now tadoru
+```
+
+`systemctl` manages background programs on Linux. `enable` means "start this automatically whenever
+the server reboots" and `--now` means "and also start it right now". Check it is running:
+
+```bash
+sudo systemctl status tadoru
+```
+
+You want a line saying `active (running)`. Press `q` to get out of that screen.
+
+### 5. Point your domain at the server
+
+In whoever manages your domain — your registrar or DNS provider — add an **A record**:
+
+| Field | Value |
+|---|---|
+| Type | `A` |
+| Name | `stats` |
+| Value | your server's IP address |
+
+An A record is simply the line that tells the internet "this name lives at this IP address". After
+adding it, `stats.yoursite.com` points at your server. It usually works within minutes, though it
+can take longer.
+
+### 6. Put HTTPS in front
+
+Right now Tadoru only listens on the server's own internal address, so nothing outside can reach
+it. That is deliberate: it should not face the internet directly. You put a **reverse proxy** in
+front — a small program that receives visitors, handles the HTTPS padlock, and passes requests
+inward.
+
+[Caddy](https://caddyserver.com) does this and obtains the certificate for you:
+
+```bash
+sudo apt install -y caddy
+```
+
+Then replace its configuration:
+
+```bash
+sudo tee /etc/caddy/Caddyfile > /dev/null <<'EOF'
+stats.yoursite.com {
 	reverse_proxy 127.0.0.1:3000
 }
+EOF
+
+sudo systemctl reload caddy
 ```
 
-Finally, add the snippet to each measured site:
+Use your real subdomain in place of `stats.yoursite.com`. Caddy gets a certificate automatically the
+first time someone visits, which takes a few seconds.
+
+Now open `https://stats.yoursite.com` in a browser. You should see the login page. Enter the
+password from step 3.
+
+### 7. Add the snippet to your site
+
+In the HTML of the site you are measuring, just before `</head>`:
 
 ```html
-<script defer src="https://tadoru.example.com/t.js"></script>
+<script defer src="https://stats.yoursite.com/t.js"></script>
 ```
 
-That is the whole installation. No database to provision, no cache, no queue.
-
-### Visitors without JavaScript
-
-Add the pixel fallback. It records the page, referrer, country and device without any script:
+For visitors with JavaScript turned off, add this too:
 
 ```html
-<noscript><img src="https://tadoru.example.com/t.gif" alt="" width="1" height="1"></noscript>
+<noscript><img src="https://stats.yoursite.com/t.gif" alt="" width="1" height="1"></noscript>
 ```
 
-### Custom events and goals
+### 8. Check that it works
+
+This is the step people skip and then wonder whether they finished.
+
+1. Open your site in a browser and click through a couple of pages.
+2. Go back to `https://stats.yoursite.com` and reload.
+3. You should see those visits.
+
+If you see them, you are done.
+
+---
+
+## When it does not work
+
+**The dashboard says nothing was recorded.** Check that the domain in `--sites` is exactly the one
+your visitors use. Tadoru silently ignores traffic from any domain not on that list, including
+`www.` differences.
+
+**`systemctl status tadoru` says `failed`.** Read the reason:
+
+```bash
+sudo journalctl -u tadoru -n 30
+```
+
+The most common cause is a missing admin password — Tadoru refuses to start rather than run with no
+credentials, and says so plainly.
+
+**The browser cannot reach the address.** The DNS record has probably not taken effect yet. Check
+what the world sees:
+
+```bash
+dig +short stats.yoursite.com
+```
+
+It should print your server's IP. If it prints nothing, wait and try again.
+
+**HTTPS shows a certificate warning.** Caddy could not get a certificate — almost always because the
+DNS record is not pointing at this server yet, or because ports 80 and 443 are blocked by a
+firewall. `sudo journalctl -u caddy -n 30` says which.
+
+**You lost the admin password.** There is no recovery, by design: it is stored hashed. Edit
+`/etc/tadoru/tadoru.env`, set `TADORU_ADMIN_PASSWORD` to a new value, and
+`sudo systemctl restart tadoru`.
+
+---
+
+## Measuring more than page views
+
+The snippet already records pages, referrers, campaigns, countries, devices, engagement time,
+scroll depth and outbound clicks without any configuration. Two things you can add.
+
+**Goals and custom events.** Call `tadoru` with a name wherever something happens that matters —
+a signup, a purchase, a form sent:
 
 ```js
 tadoru('signup', { plan: 'pro' })
 ```
+
+The name appears in the dashboard; the properties are stored alongside it.
+
+**Visitors with JavaScript disabled.** The `<noscript>` pixel from step 7 covers them. It records
+the page, referrer, country and device, but not engagement, scroll or clicks — those need a script
+running in the page.
 
 ---
 
@@ -97,6 +315,15 @@ back. That simplicity is the direct payoff of choosing SQLite.
 the shipped systemd unit does that work instead: dedicated unprivileged user, no capabilities,
 `ProtectSystem=strict`, a restricted syscall filter. Check it with
 `systemd-analyze security tadoru`.
+
+**Dashboard language.** The dashboard is available in English, Spanish and Japanese. It follows
+your browser's `Accept-Language` by default; set `TADORU_LANG` (to `en`, `es` or `ja`) to fix it
+to one language for every visitor instead:
+
+```bash
+sudo systemctl set-environment TADORU_LANG=es
+sudo systemctl restart tadoru
+```
 
 ### Docker, if you prefer it
 

@@ -199,3 +199,42 @@ test('an invalid screenBucket falls back to bucketing screenWidth', async () => 
   assert.ok(event);
   assert.equal(event.screenBucket, 'xl');
 });
+
+test('the device is derived from exactly the user agent that feeds the visitor id', async () => {
+  // The headline "Visitors" figure is the sum of the device breakdown, and that
+  // is only exact because one visitor id can never span two device values: the
+  // id hashes the user agent, and the device is a function of that same string.
+  //
+  // Adding another input to device resolution — client hints, most likely —
+  // without adding it to the hash would silently break the headline, since two
+  // events could then share an id but land in different device rows. This test
+  // makes that a red suite instead of a wrong number on a page.
+  const seen: readonly unknown[][] = [];
+  const calls: unknown[][] = seen as unknown[][];
+  const spyResolver = {
+    resolve(...args: unknown[]) {
+      calls.push(args);
+      return { type: 'desktop', browserFamily: 'Chrome', osFamily: 'Windows' } as const;
+    },
+  };
+
+  const clock = new FakeClock(new Date('2026-09-08T10:00:00Z'));
+  const useCase = new RecordEvent({
+    clock,
+    saltProvider: new FakeSaltProvider('salt-day-1'),
+    geoResolver: new FakeGeoResolver({ '203.0.113.7': 'ES' as never }),
+    deviceResolver: spyResolver as never,
+    eventRepository: new FakeEventRepository(),
+    allowedSites: ['example.com'],
+  });
+
+  const userAgent = 'Mozilla/5.0 (Windows NT 10.0) Chrome/120.0.0.0';
+  await useCase.execute(baseRequest({ userAgent }));
+
+  assert.equal(calls.length, 1, 'the resolver should be consulted once');
+  assert.deepEqual(
+    calls[0],
+    [userAgent],
+    'the resolver must receive the user agent and nothing else — any extra input would have to join the visitor id hash too',
+  );
+});
