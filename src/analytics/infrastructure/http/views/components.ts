@@ -2,6 +2,8 @@ import { html } from './escapeHtml.ts';
 import type { SafeHtml } from './escapeHtml.ts';
 import type { MetricRow } from '../../../domain/report/Metrics.ts';
 import type { BreakdownDimension } from '../../../domain/report/Breakdown.ts';
+import { countryFlagEmoji, countryDisplayName } from './country.ts';
+import { operatingSystemIcon } from './operatingSystem.ts';
 
 /**
  * Additive headline numbers for a range. Unlike `MetricRow.visitors`, these
@@ -71,6 +73,31 @@ export function labelForKey(dimension: BreakdownDimension, key: string): string 
   return key.trim().length === 0 ? EMPTY_KEY_LABELS[dimension] : key;
 }
 
+/**
+ * The contents of a breakdown row's first cell.
+ *
+ * Two dimensions carry a small visual marker: a country gets its flag and its
+ * full name instead of a bare ISO code, and an operating system gets an icon.
+ * The marker is always `aria-hidden`, because the readable label sits right
+ * beside it and a screen reader announcing "flag of Spain Spain" is noise.
+ * Anything with no marker to show renders as plain text rather than an empty
+ * element.
+ */
+export function renderKeyCell(dimension: BreakdownDimension, key: string): SafeHtml {
+  if (dimension === 'country') {
+    const flag = countryFlagEmoji(key);
+    const name = countryDisplayName(key);
+    return flag === '' ? html`${name}` : html`<span aria-hidden="true">${flag}</span> ${name}`;
+  }
+
+  const label = labelForKey(dimension, key);
+  if (dimension === 'os') {
+    const icon = operatingSystemIcon(key);
+    if (icon !== '') return html`<span aria-hidden="true">${icon}</span> ${label}`;
+  }
+  return html`${label}`;
+}
+
 export function renderHeadline(totals: HeadlineTotals): SafeHtml {
   const rate = formatPercent(bounceRate(totals));
   const avgEngagement = formatDuration(averageEngagementSeconds(totals));
@@ -98,7 +125,7 @@ export function renderBreakdownTable(title: string, dimension: BreakdownDimensio
   const sorted = [...rows].sort((a, b) => b.visitors - a.visitors);
   const bodyRows = sorted.map(
     (row) =>
-      html`<tr><td>${labelForKey(dimension, row.key)}</td><td>${row.visitors}</td><td>${row.pageviews}</td></tr>`,
+      html`<tr><td>${renderKeyCell(dimension, row.key)}</td><td>${row.visitors}</td><td>${row.pageviews}</td></tr>`,
   );
 
   return html`<section>

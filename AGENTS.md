@@ -45,7 +45,11 @@ not the test.
    applies, so a longer setting must warn loudly on boot.
 8. **Unique visitors are never summed across rollup dimensions.** Each dimension's `visitors`
    column is an independent `COUNT(DISTINCT visitor_id)` computed from raw events.
-9. **The corresponding source is offered over the network.** The project is AGPL-3.0-only, and
+9. **The dashboard makes no third-party requests.** No favicons, icon CDNs, web fonts or remote
+   images of any kind — only its own origin. Markers are derived locally (country flags from the
+   ISO code, OS icons as emoji) or omitted. Favicons will be proposed again because every
+   competitor has them; see `docs/adr/0007-no-third-party-requests-from-the-dashboard.md` first.
+10. **The corresponding source is offered over the network.** The project is AGPL-3.0-only, and
    section 13 applies to programs users interact with remotely. Every dashboard page must link to
    the repository and the running version, and the tracker bundle must keep its `@license`
    banner. This is a licence obligation, not decoration — do not remove either.

@@ -78,13 +78,13 @@ ${rangeSelector(site, options.range)}`;
   const content = hasAnyData(options)
     ? html`${renderHeadline(options.totals)}
 ${renderVisitorChart(options.dailyVisitors)}
+${renderBreakdownTable('Campaigns', 'campaign', breakdowns.campaign)}
 ${renderBreakdownTable('Top pages', 'path', breakdowns.path)}
 ${renderBreakdownTable('Referrer sources', 'referrer', breakdowns.referrer)}
 ${renderBreakdownTable('Countries', 'country', breakdowns.country)}
 ${renderBreakdownTable('Devices', 'device', breakdowns.device)}
 ${renderBreakdownTable('Browsers', 'browser', breakdowns.browser)}
-${renderBreakdownTable('Operating systems', 'os', breakdowns.os)}
-${renderBreakdownTable('Campaigns', 'campaign', breakdowns.campaign)}`
+${renderBreakdownTable('Operating systems', 'os', breakdowns.os)}`
     : html`<p>No data yet for this site in this range. Check that the tracking snippet is installed on your site — the exact snippet is shown on <a href="/dashboard">the sites page</a>.</p>`;
 
   const body = html`${header}

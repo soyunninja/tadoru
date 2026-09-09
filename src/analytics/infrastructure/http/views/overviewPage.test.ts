@@ -80,3 +80,22 @@ test('renderOverviewPage links back to /dashboard', () => {
   const page = renderOverviewPage(baseOptions()).toString();
   assert.match(page, /href="\/dashboard"/);
 });
+
+test('campaigns lead the breakdowns, ahead of pages and referrers', () => {
+  // With no data at all the page renders its empty state instead of tables,
+  // so the ordering can only be observed once there is something to order.
+  const page = renderOverviewPage(
+    baseOptions({
+      totals: { pageviews: 4, visitors: 2, sessions: 2, bounces: 1, engagementSeconds: 60 },
+      breakdowns: {
+        ...emptyBreakdowns,
+        path: [row('/', 2)],
+        campaign: [row('lanzamiento', 2)],
+      },
+    }),
+  ).toString();
+  const campaignsAt = page.indexOf('Campaigns');
+  const pagesAt = page.indexOf('Top pages');
+  assert.ok(campaignsAt !== -1 && pagesAt !== -1, 'both sections should render');
+  assert.ok(campaignsAt < pagesAt, 'Campaigns should come first');
+});

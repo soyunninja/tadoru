@@ -147,3 +147,44 @@ test('renderTrackingSnippet escapes an attacker-controlled Host header', () => {
   const out = renderTrackingSnippet('"><script>alert(1)</script>', true).toString();
   assert.ok(!out.includes('<script>alert(1)</script>'));
 });
+
+test('the country table shows a flag and the country name, not a bare ISO code', () => {
+  const html = renderBreakdownTable('Countries', 'country', [
+    { key: 'ES', visitors: 10, pageviews: 20, sessions: 10, bounces: 3, engagementSeconds: 100 },
+  ]).toString();
+  assert.match(html, /🇪🇸/);
+  assert.match(html, /Spain/);
+});
+
+// The name sits right beside it, so a screen reader announcing "flag of Spain
+// Spain" is noise. The flag is decoration; the name carries the meaning.
+test('the flag is hidden from assistive technology', () => {
+  const html = renderBreakdownTable('Countries', 'country', [
+    { key: 'ES', visitors: 1, pageviews: 1, sessions: 1, bounces: 0, engagementSeconds: 0 },
+  ]).toString();
+  assert.match(html, /aria-hidden="true"[^>]*>🇪🇸/);
+});
+
+test('an unlocatable visitor gets no nonsense flag', () => {
+  const html = renderBreakdownTable('Countries', 'country', [
+    { key: 'XX', visitors: 1, pageviews: 1, sessions: 1, bounces: 0, engagementSeconds: 0 },
+  ]).toString();
+  assert.ok(!html.includes('🇽🇽'));
+  assert.match(html, /Unknown/);
+});
+
+test('the operating system table shows an icon beside the name', () => {
+  const html = renderBreakdownTable('Operating systems', 'os', [
+    { key: 'GNU/Linux', visitors: 5, pageviews: 9, sessions: 5, bounces: 1, engagementSeconds: 50 },
+  ]).toString();
+  assert.match(html, /aria-hidden="true"[^>]*>🐧/);
+  assert.match(html, /GNU\/Linux/);
+});
+
+test('other dimensions are left undecorated', () => {
+  const html = renderBreakdownTable('Top pages', 'path', [
+    { key: '/blog/post', visitors: 3, pageviews: 4, sessions: 3, bounces: 1, engagementSeconds: 30 },
+  ]).toString();
+  assert.ok(!html.includes('aria-hidden'));
+  assert.match(html, /\/blog\/post/);
+});
