@@ -12,6 +12,13 @@ import type { TimeRange } from '../../domain/report/TimeRange.ts';
 import type { Breakdown, BreakdownDimension } from '../../domain/report/Breakdown.ts';
 import type { MetricRow } from '../../domain/report/Metrics.ts';
 import type { Locale } from '../i18n/Locale.ts';
+import { readFileSync } from 'node:fs';
+import { findPackageRoot } from '../packageRoot.ts';
+import { join } from 'node:path';
+
+const RUNNING_VERSION: string = (
+  JSON.parse(readFileSync(join(findPackageRoot(import.meta.url) ?? '.', 'package.json'), 'utf8')) as { version: string }
+).version;
 
 function site(value: string): SiteId {
   return value as SiteId;
@@ -417,7 +424,9 @@ test('every rendered page links to the project repository and shows the running 
   const { fastify } = buildApp();
   const response = await fastify.inject({ method: 'GET', url: '/login' });
   assert.match(response.payload, /<footer>/);
-  assert.match(response.payload, /0\.1\.0/);
+  // Read, not hardcoded: the assertion is that the footer shows the running
+  // version, and a release should not have to edit tests to stay green.
+  assert.match(response.payload, new RegExp(RUNNING_VERSION.replace(/\./g, '\\.')));
 });
 
 test('with no configured locale and no Accept-Language, the dashboard defaults to English', async () => {

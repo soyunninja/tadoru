@@ -65,3 +65,14 @@ test('parameterised messages interpolate their arguments', () => {
   assert.equal(messagesFor('es').footer.version('1.2.3'), '(versión 1.2.3)');
   assert.equal(messagesFor('en').chart.barTitle('2026-01-01', '3'), '2026-01-01: 3 visitors');
 });
+
+test('the activity summary gets the plural right in every locale', () => {
+  // "1 events total" on the line that exists to reassure a new operator reads
+  // as carelessness, so each locale applies its own rule.
+  assert.match(messagesFor('en').sites.activitySummary('2 seconds ago', '1', 1), /1 event total/);
+  assert.match(messagesFor('en').sites.activitySummary('2 seconds ago', '42', 42), /42 events total/);
+  assert.match(messagesFor('es').sites.activitySummary('hace 2 segundos', '1', 1), /1 evento en total/);
+  assert.match(messagesFor('es').sites.activitySummary('hace 2 segundos', '42', 42), /42 eventos en total/);
+  // Japanese has no grammatical plural; the counter word carries it.
+  assert.match(messagesFor('ja').sites.activitySummary('2秒前', '1', 1), /合計 1 件/);
+});

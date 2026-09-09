@@ -216,7 +216,7 @@ function renderSiteActivityLine(activity: SiteActivity, nowSeconds: number, loca
   }
   const lastSeen = formatRelativeTime(activity.lastEventTs, nowSeconds, locale);
   const totalEvents = formatNumber(activity.totalEvents, locale);
-  return html`${messages.sites.activitySummary(lastSeen, totalEvents)}`;
+  return html`${messages.sites.activitySummary(lastSeen, totalEvents, activity.totalEvents)}`;
 }
 
 function renderSitesPage(options: {

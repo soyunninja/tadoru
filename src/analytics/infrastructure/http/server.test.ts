@@ -1,11 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildServer } from './server.ts';
 import { loadConfig } from '../config/loadConfig.ts';
 import { BUNDLED_FONT_URL } from '../assets.ts';
+import { findPackageRoot } from '../packageRoot.ts';
+
+const RUNNING_VERSION: string = (
+  JSON.parse(readFileSync(join(findPackageRoot(import.meta.url) ?? '.', 'package.json'), 'utf8')) as { version: string }
+).version;
 
 function withServer(fn: (server: ReturnType<typeof buildServer>) => Promise<void>): () => Promise<void> {
   return async () => {
@@ -126,7 +131,9 @@ test('the dashboard is actually reachable from the built server', withServer(asy
 test('every dashboard page links to its source, as AGPL section 13 requires', withServer(async (server) => {
   const login = await server.fastify.inject({ method: 'GET', url: '/login' });
   assert.match(login.body, /github\.com/);
-  assert.match(login.body, /0\.1\.0/);
+  // Read, not hardcoded: the assertion is that the footer shows the running
+  // version, and a release should not have to edit tests to stay green.
+  assert.match(login.body, new RegExp(RUNNING_VERSION.replace(/\./g, '\\.')));
 }));
 
 test('the built server serves the tracker bundle the README tells people to embed', withServer(async (server) => {
@@ -177,6 +184,6 @@ test('the sites page reports real activity, not a permanent "never received"', w
   });
 
   assert.equal(page.statusCode, 200);
-  assert.match(page.body, /events total/, 'the site should report the events it received');
+  assert.match(page.body, /1 event total/, 'the site should report the events it received');
   assert.ok(!/No events received yet/.test(page.body), 'it must not still claim nothing arrived');
 }));

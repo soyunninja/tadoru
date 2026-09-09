@@ -32,7 +32,12 @@ export interface Messages {
     /** Shown for a configured site that has never received an event: says so, and what to check. */
     readonly activityNever: string;
     /** `lastSeen` is a pre-formatted relative time ("2 minutes ago"); `totalEvents` a pre-formatted count. */
-    readonly activitySummary: (lastSeen: string, totalEvents: string) => string;
+    /**
+     * Takes the raw count as well as its formatted form: only the locale knows
+     * its own plural rules, and "1 events total" on the very line meant to
+     * reassure a new operator reads as sloppiness.
+     */
+    readonly activitySummary: (lastSeen: string, totalEvents: string, count: number) => string;
   };
   readonly notFound: {
     readonly pageTitle: string;
@@ -108,7 +113,8 @@ const en: Messages = {
     empty: 'No sites configured.',
     activityNever:
       'No events received yet. Check that the tracking snippet is installed, and that the domain matches exactly — including "www." if your site uses it.',
-    activitySummary: (lastSeen, totalEvents) => `Last event ${lastSeen} · ${totalEvents} events total`,
+    activitySummary: (lastSeen, totalEvents, count) =>
+      `Last event ${lastSeen} · ${totalEvents} ${count === 1 ? 'event' : 'events'} total`,
   },
   notFound: {
     pageTitle: 'Not found — Tadoru',
@@ -193,7 +199,8 @@ const es: Messages = {
     empty: 'No hay sitios configurados.',
     activityNever:
       'Todavía no se ha recibido ningún evento. Comprueba que el fragmento de seguimiento esté instalado y que el dominio coincida exactamente — incluyendo «www.» si tu sitio lo usa.',
-    activitySummary: (lastSeen, totalEvents) => `Último evento ${lastSeen} · ${totalEvents} eventos en total`,
+    activitySummary: (lastSeen, totalEvents, count) =>
+      `Último evento ${lastSeen} · ${totalEvents} ${count === 1 ? 'evento' : 'eventos'} en total`,
   },
   notFound: {
     pageTitle: 'No encontrado — Tadoru',
