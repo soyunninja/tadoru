@@ -269,9 +269,19 @@ It should print your server's IP. If it prints nothing, wait and try again.
 DNS record is not pointing at this server yet, or because ports 80 and 443 are blocked by a
 firewall. `sudo journalctl -u caddy -n 30` says which.
 
-**You lost the admin password.** There is no recovery, by design: it is stored hashed. Edit
-`/etc/tadoru/tadoru.env`, set `TADORU_ADMIN_PASSWORD` to a new value, and
-`sudo systemctl restart tadoru`.
+**You lost the admin password.** `/etc/tadoru/tadoru.env` stores only a scrypt hash and its salt
+(`TADORU_ADMIN_PASSWORD_HASH` / `TADORU_ADMIN_PASSWORD_SALT`), never the plaintext. A hash cannot
+be turned back into the password, so losing it is genuinely unrecoverable rather than merely
+inconvenient — reset it instead:
+
+```bash
+sudo tadoru reset-password
+sudo systemctl restart tadoru
+```
+
+This backs up the existing env file to a dated copy alongside it, generates a new password,
+prints it once, and rewrites only the credential lines — every other line in the file (comments,
+sites, host, port) is left untouched.
 
 ---
 
@@ -338,6 +348,10 @@ currently in place to a dated file next to it — so restoring the wrong backup 
 way back — and only then replaces it, removing any stale `-wal`/`-shm` files so the restored
 database never starts from an inconsistent journal. `--dry-run` runs every one of those checks for
 real and prints the plan without changing anything on disk.
+
+**Lost the admin password? `tadoru reset-password`.** It backs up the env file, generates a new
+password, prints it once, and rewrites only the credential lines — see "When it does not work"
+above for the full walkthrough.
 
 **A note on hardening.** Running natively means there is no container isolating the process, so
 the shipped systemd unit does that work instead: dedicated unprivileged user, no capabilities,

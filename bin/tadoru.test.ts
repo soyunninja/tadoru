@@ -127,6 +127,18 @@ test('parseCli "restore --help" returns help for restore', () => {
   assert.deepEqual(parseCli(['restore', '--help']), { kind: 'help', command: 'restore' });
 });
 
+test('parseCli "reset-password" with no flags defaults dryRun to false', () => {
+  assert.deepEqual(parseCli(['reset-password']), { kind: 'reset-password', dryRun: false });
+});
+
+test('parseCli "reset-password --dry-run"', () => {
+  assert.deepEqual(parseCli(['reset-password', '--dry-run']), { kind: 'reset-password', dryRun: true });
+});
+
+test('parseCli "reset-password --help" returns help for reset-password', () => {
+  assert.deepEqual(parseCli(['reset-password', '--help']), { kind: 'help', command: 'reset-password' });
+});
+
 test('parseCli with an unknown command returns unknown', () => {
   assert.deepEqual(parseCli(['frobnicate']), { kind: 'unknown', name: 'frobnicate' });
 });

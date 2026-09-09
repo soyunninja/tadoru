@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadConfig } from './loadConfig.ts';
-import { verifyPasswordHash } from '../http/adminAuth.ts';
+import { hashPassword, verifyPasswordHash } from '../http/adminAuth.ts';
 
 function withTempDir<T>(fn: (dir: string) => T): T {
   const dir = mkdtempSync(join(tmpdir(), 'tadoru-config-test-'));
@@ -81,6 +82,143 @@ test('the admin password is stored hashed, never in plaintext', () => {
       }),
       true,
     );
+  });
+});
+
+test('accepts a pre-hashed TADORU_ADMIN_PASSWORD_HASH / TADORU_ADMIN_PASSWORD_SALT pair', () => {
+  withTempDir((dataDir) => {
+    const { hash, salt } = hashPassword('a-genuinely-strong-password');
+    const result = loadConfig({
+      env: {
+        TADORU_DATA_DIR: dataDir,
+        TADORU_SITES: 'example.com',
+        TADORU_ADMIN_PASSWORD_HASH: hash,
+        TADORU_ADMIN_PASSWORD_SALT: salt,
+      },
+    });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.value.config.admin.passwordHash, hash);
+    assert.equal(result.value.config.admin.passwordSalt, salt);
+    assert.equal(verifyPasswordHash('a-genuinely-strong-password', { hash, salt }), true);
+  });
+});
+
+test('prefers the pre-hashed pair over plaintext when both are configured', () => {
+  withTempDir((dataDir) => {
+    const { hash, salt } = hashPassword('the-hashed-one-wins');
+    const result = loadConfig({
+      env: baseEnv(dataDir, {
+        TADORU_ADMIN_PASSWORD: 'this-plaintext-value-must-be-ignored',
+        TADORU_ADMIN_PASSWORD_HASH: hash,
+        TADORU_ADMIN_PASSWORD_SALT: salt,
+      }),
+    });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.value.config.admin.passwordHash, hash);
+    assert.equal(result.value.config.admin.passwordSalt, salt);
+  });
+});
+
+test('refuses to load with the placeholder credential pair shipped in deploy/tadoru.env.example', () => {
+  // Read the shipped file rather than restating its values, so this stays true
+  // whatever the placeholder is changed to later. The file tells operators to
+  // copy it to /etc/tadoru/tadoru.env; following that instruction must produce a
+  // loud refusal at boot, not a server that starts and then rejects every login.
+  const examplePath = fileURLToPath(new URL('../../../../deploy/tadoru.env.example', import.meta.url));
+  const example = readFileSync(examplePath, 'utf8');
+  const placeholderHash = /^TADORU_ADMIN_PASSWORD_HASH=(.*)$/m.exec(example)?.[1];
+  const placeholderSalt = /^TADORU_ADMIN_PASSWORD_SALT=(.*)$/m.exec(example)?.[1];
+  assert.ok(placeholderHash, 'deploy/tadoru.env.example must set TADORU_ADMIN_PASSWORD_HASH');
+  assert.ok(placeholderSalt, 'deploy/tadoru.env.example must set TADORU_ADMIN_PASSWORD_SALT');
+
+  withTempDir((dataDir) => {
+    const result = loadConfig({
+      env: {
+        TADORU_DATA_DIR: dataDir,
+        TADORU_SITES: 'example.com',
+        TADORU_ADMIN_PASSWORD_HASH: placeholderHash,
+        TADORU_ADMIN_PASSWORD_SALT: placeholderSalt,
+      },
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.match(result.error, /TADORU_ADMIN_PASSWORD_HASH/);
+      assert.match(result.error, /reset-password/);
+    }
+  });
+});
+
+test('refuses to load when TADORU_ADMIN_PASSWORD_HASH is not hex of the expected length', () => {
+  withTempDir((dataDir) => {
+    const { salt } = hashPassword('a-genuinely-strong-password');
+    const result = loadConfig({
+      env: {
+        TADORU_DATA_DIR: dataDir,
+        TADORU_SITES: 'example.com',
+        TADORU_ADMIN_PASSWORD_HASH: 'deadbeef',
+        TADORU_ADMIN_PASSWORD_SALT: salt,
+      },
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.match(result.error, /TADORU_ADMIN_PASSWORD_HASH/);
+      assert.match(result.error, /reset-password/);
+    }
+  });
+});
+
+test('refuses to load when TADORU_ADMIN_PASSWORD_SALT is not hex of the expected length', () => {
+  withTempDir((dataDir) => {
+    const { hash } = hashPassword('a-genuinely-strong-password');
+    const result = loadConfig({
+      env: {
+        TADORU_DATA_DIR: dataDir,
+        TADORU_SITES: 'example.com',
+        TADORU_ADMIN_PASSWORD_HASH: hash,
+        TADORU_ADMIN_PASSWORD_SALT: 'not-a-salt',
+      },
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.match(result.error, /TADORU_ADMIN_PASSWORD_SALT/);
+      assert.match(result.error, /reset-password/);
+    }
+  });
+});
+
+test('refuses to load when TADORU_ADMIN_PASSWORD_HASH is set without TADORU_ADMIN_PASSWORD_SALT', () => {
+  withTempDir((dataDir) => {
+    const result = loadConfig({
+      env: {
+        TADORU_DATA_DIR: dataDir,
+        TADORU_SITES: 'example.com',
+        TADORU_ADMIN_PASSWORD_HASH: 'deadbeef',
+      },
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.match(result.error, /TADORU_ADMIN_PASSWORD_SALT/);
+      assert.match(result.error, /missing/i);
+    }
+  });
+});
+
+test('refuses to load when TADORU_ADMIN_PASSWORD_SALT is set without TADORU_ADMIN_PASSWORD_HASH', () => {
+  withTempDir((dataDir) => {
+    const result = loadConfig({
+      env: {
+        TADORU_DATA_DIR: dataDir,
+        TADORU_SITES: 'example.com',
+        TADORU_ADMIN_PASSWORD_SALT: 'deadbeef',
+      },
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.match(result.error, /TADORU_ADMIN_PASSWORD_HASH/);
+      assert.match(result.error, /missing/i);
+    }
   });
 });
 

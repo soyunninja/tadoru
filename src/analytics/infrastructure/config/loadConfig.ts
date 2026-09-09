@@ -5,7 +5,7 @@ import type { Result } from '../../../shared/Result.ts';
 import { ok, err } from '../../../shared/Result.ts';
 import { createSiteId } from '../../domain/event/SiteId.ts';
 import type { SiteId } from '../../domain/event/SiteId.ts';
-import { hashPassword } from '../http/adminAuth.ts';
+import { hashPassword, SCRYPT_KEY_LENGTH, SALT_BYTE_LENGTH } from '../http/adminAuth.ts';
 import { isSupportedLocale } from '../i18n/Locale.ts';
 import type { Locale } from '../i18n/Locale.ts';
 import type { Config } from './Config.ts';
@@ -21,6 +21,21 @@ import {
 } from './Config.ts';
 
 const SESSION_SECRET_BYTE_LENGTH = 32;
+
+const PASSWORD_HASH_HEX_LENGTH = SCRYPT_KEY_LENGTH * 2;
+const PASSWORD_SALT_HEX_LENGTH = SALT_BYTE_LENGTH * 2;
+const HEX_PATTERN = /^[0-9a-f]+$/i;
+
+/**
+ * A pre-hashed credential is only usable if it is hex of the exact length
+ * `hashPassword` produces. Anything else — a placeholder, a truncated
+ * copy-paste, a value from a different tool — can never match a real password,
+ * so accepting it would mean booting a server whose every login fails with no
+ * explanation. Refusing at load time turns that silent lockout into a message.
+ */
+function isWellFormedCredentialHex(value: string, expectedLength: number): boolean {
+  return value.length === expectedLength && HEX_PATTERN.test(value);
+}
 
 /** Shape accepted from `tadoru.config.json`. Every field is optional: the file may set none, some, or all of them. */
 interface ConfigFileShape {
@@ -138,24 +153,75 @@ export function loadConfig(options: LoadConfigOptions = {}): Result<LoadedConfig
 
   const language = parseLanguageEnv(env['TADORU_LANG']);
 
-  const adminPassword = env['TADORU_ADMIN_PASSWORD'] ?? fileConfig.adminPassword ?? '';
+  const passwordHashEnv = env['TADORU_ADMIN_PASSWORD_HASH'];
+  const passwordSaltEnv = env['TADORU_ADMIN_PASSWORD_SALT'];
+  const hasPasswordHash = passwordHashEnv !== undefined && passwordHashEnv.length > 0;
+  const hasPasswordSalt = passwordSaltEnv !== undefined && passwordSaltEnv.length > 0;
 
-  if (adminPassword.trim().length === 0) {
+  if (hasPasswordHash && !hasPasswordSalt) {
     return err(
-      'Admin password is missing. Set TADORU_ADMIN_PASSWORD (or "adminPassword" in ' +
-        'tadoru.config.json) to a strong, unique value. Generate one with, for example: ' +
-        "openssl rand -base64 24",
+      'TADORU_ADMIN_PASSWORD_HASH is set but TADORU_ADMIN_PASSWORD_SALT is missing. Both must ' +
+        'be configured together — run "tadoru reset-password" to generate a matching pair.',
     );
   }
-  if (isKnownExamplePassword(adminPassword)) {
+  if (hasPasswordSalt && !hasPasswordHash) {
     return err(
-      `Admin password "${adminPassword}" is a known example value and must never be used. ` +
-        'Generate a real one with, for example: openssl rand -base64 24',
+      'TADORU_ADMIN_PASSWORD_SALT is set but TADORU_ADMIN_PASSWORD_HASH is missing. Both must ' +
+        'be configured together — run "tadoru reset-password" to generate a matching pair.',
     );
+  }
+
+  let passwordHash: string;
+  let passwordSalt: string;
+
+  if (hasPasswordHash && hasPasswordSalt) {
+    // The pre-hashed pair wins over plaintext whenever both are present. This is what
+    // `install-service` and `reset-password` now write, so it is the common case, not the
+    // exception; and preferring it means a leftover plaintext TADORU_ADMIN_PASSWORD (from
+    // hand-editing, or from before this file existed) never silently overrides a freshly
+    // rotated hash+salt pair sitting right next to it on disk.
+    if (!isWellFormedCredentialHex(passwordHashEnv, PASSWORD_HASH_HEX_LENGTH)) {
+      return err(
+        `TADORU_ADMIN_PASSWORD_HASH is not a usable credential hash: it must be exactly ` +
+          `${PASSWORD_HASH_HEX_LENGTH} hexadecimal characters. The value in ` +
+          'deploy/tadoru.env.example is a placeholder, not a working credential. Generate a real ' +
+          'pair with: sudo tadoru reset-password',
+      );
+    }
+    if (!isWellFormedCredentialHex(passwordSaltEnv, PASSWORD_SALT_HEX_LENGTH)) {
+      return err(
+        `TADORU_ADMIN_PASSWORD_SALT is not a usable credential salt: it must be exactly ` +
+          `${PASSWORD_SALT_HEX_LENGTH} hexadecimal characters. The value in ` +
+          'deploy/tadoru.env.example is a placeholder, not a working credential. Generate a real ' +
+          'pair with: sudo tadoru reset-password',
+      );
+    }
+
+    passwordHash = passwordHashEnv;
+    passwordSalt = passwordSaltEnv;
+  } else {
+    const adminPassword = env['TADORU_ADMIN_PASSWORD'] ?? fileConfig.adminPassword ?? '';
+
+    if (adminPassword.trim().length === 0) {
+      return err(
+        'Admin password is missing. Set TADORU_ADMIN_PASSWORD (or "adminPassword" in ' +
+          'tadoru.config.json) to a strong, unique value. Generate one with, for example: ' +
+          "openssl rand -base64 24",
+      );
+    }
+    if (isKnownExamplePassword(adminPassword)) {
+      return err(
+        `Admin password "${adminPassword}" is a known example value and must never be used. ` +
+          'Generate a real one with, for example: openssl rand -base64 24',
+      );
+    }
+
+    const hashed = hashPassword(adminPassword);
+    passwordHash = hashed.hash;
+    passwordSalt = hashed.salt;
   }
 
   const sessionSecret = resolveSessionSecret(env, dataDir);
-  const { salt: passwordSalt, hash: passwordHash } = hashPassword(adminPassword);
 
   const warnings: string[] = [];
   if (rawEventMonths > RETENTION_WARNING_THRESHOLD_MONTHS) {

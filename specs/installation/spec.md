@@ -19,6 +19,68 @@ credential silently.
 - **THEN** startup fails with a message naming the problem and the fix
 - Verified by: the configuration tests
 
+### Requirement: The admin credential may be configured pre-hashed or as plaintext
+
+The system SHALL accept the admin credential in either of two forms: a pre-hashed
+`TADORU_ADMIN_PASSWORD_HASH` / `TADORU_ADMIN_PASSWORD_SALT` pair, or a plaintext
+`TADORU_ADMIN_PASSWORD` (or `"adminPassword"` in `tadoru.config.json`), which SHALL be hashed at
+load time exactly as before. Plaintext support SHALL NOT be removed: an operator hand-editing the
+env file may still reasonably set it directly.
+
+When both forms are present, the pre-hashed pair SHALL win. This is what `install-service` and
+`reset-password` now write, so it is the common case; preferring it also means a leftover
+plaintext value (from hand-editing, or from before this file was rehashed) can never silently
+override a freshly rotated hash+salt pair sitting next to it.
+
+If `TADORU_ADMIN_PASSWORD_HASH` is set without `TADORU_ADMIN_PASSWORD_SALT`, or the reverse, the
+system SHALL refuse to start with a message naming exactly the missing one — never a generic
+"invalid config" message.
+
+A pre-hashed pair SHALL be accepted only when each value is hexadecimal of exactly the length
+`hashPassword` produces; otherwise the system SHALL refuse to start, naming the offending
+variable and how to generate a real pair. A value that cannot have come from `hashPassword` — the
+placeholder shipped in `deploy/tadoru.env.example`, a truncated copy-paste, a value from another
+tool — can never match any password, so accepting it would start a server that rejects every
+login with nothing in the logs to explain why. `deploy/tadoru.env.example` tells the operator to
+copy it to `/etc/tadoru/tadoru.env`, so following that instruction SHALL produce a refusal at
+boot, not a silent lockout.
+
+#### Scenario: A pre-hashed pair is accepted directly
+- **GIVEN** `TADORU_ADMIN_PASSWORD_HASH` and `TADORU_ADMIN_PASSWORD_SALT` are both set
+- **THEN** the service loads using that pair unchanged
+- Verified by: `src/analytics/infrastructure/config/loadConfig.test.ts`
+
+#### Scenario: The pre-hashed pair wins over plaintext when both are present
+- **GIVEN** `TADORU_ADMIN_PASSWORD_HASH`/`TADORU_ADMIN_PASSWORD_SALT` and `TADORU_ADMIN_PASSWORD`
+  are all set
+- **THEN** the resolved credential matches the hash+salt pair, and the plaintext value is ignored
+- Verified by: `src/analytics/infrastructure/config/loadConfig.test.ts`
+
+#### Scenario: A hash without its salt is refused by name
+- **GIVEN** `TADORU_ADMIN_PASSWORD_HASH` is set and `TADORU_ADMIN_PASSWORD_SALT` is not
+- **THEN** startup fails with a message naming `TADORU_ADMIN_PASSWORD_SALT` as missing
+- Verified by: `src/analytics/infrastructure/config/loadConfig.test.ts`
+
+#### Scenario: A salt without its hash is refused by name
+- **GIVEN** `TADORU_ADMIN_PASSWORD_SALT` is set and `TADORU_ADMIN_PASSWORD_HASH` is not
+- **THEN** startup fails with a message naming `TADORU_ADMIN_PASSWORD_HASH` as missing
+- Verified by: `src/analytics/infrastructure/config/loadConfig.test.ts`
+
+#### Scenario: The placeholder pair shipped in the example env file is refused
+- **GIVEN** the `TADORU_ADMIN_PASSWORD_HASH`/`TADORU_ADMIN_PASSWORD_SALT` values read from
+  `deploy/tadoru.env.example`
+- **THEN** startup fails with a message naming the variable and pointing at
+  `tadoru reset-password`
+- Verified by: `src/analytics/infrastructure/config/loadConfig.test.ts`, which reads the shipped
+  file rather than restating its values, so the refusal holds whatever the placeholder becomes
+
+#### Scenario: A malformed hash or salt is refused
+- **GIVEN** `TADORU_ADMIN_PASSWORD_HASH` or `TADORU_ADMIN_PASSWORD_SALT` is set to a value that is
+  not hexadecimal of the expected length
+- **THEN** startup fails with a message naming that variable and pointing at
+  `tadoru reset-password`
+- Verified by: `src/analytics/infrastructure/config/loadConfig.test.ts`
+
 ### Requirement: An explicitly configured port is pinned; an unconfigured one is chosen automatically
 
 An explicitly configured port (via `TADORU_PORT` or `"port"` in `tadoru.config.json`) SHALL never
@@ -200,12 +262,14 @@ it are different decisions, and the second stays the operator's.
 In order, it SHALL: refuse unless run as root; refuse on any platform other than Linux; require
 at least one site that validates through the site-id rules, refusing otherwise; create the
 `tadoru` system user and group if missing, with no home directory and no login shell; create
-`/etc/tadoru/`; write `/etc/tadoru/tadoru.env` (mode 0600, root-owned) with a freshly generated
-admin password, the configured sites, `TADORU_HOST=127.0.0.1`, `TADORU_PORT=3000`,
-`TADORU_TRUSTED_PROXY=true` and a language — unless that file already exists, in which case it
-SHALL be left untouched; write the systemd unit; and run `systemctl daemon-reload`. The generated
-admin password SHALL be printed to stdout exactly once, with a warning that it will not be shown
-again, and SHALL never be passed as a command-line argument to any process it invokes.
+`/etc/tadoru/`; write `/etc/tadoru/tadoru.env` (mode 0600, root-owned) with the scrypt hash and
+salt of a freshly generated admin password (`TADORU_ADMIN_PASSWORD_HASH` /
+`TADORU_ADMIN_PASSWORD_SALT` — never the plaintext value), the configured sites,
+`TADORU_HOST=127.0.0.1`, `TADORU_PORT=3000`, `TADORU_TRUSTED_PROXY=true` and a language — unless
+that file already exists, in which case it SHALL be left untouched; write the systemd unit; and
+run `systemctl daemon-reload`. The generated admin password SHALL be printed to stdout exactly
+once, with a warning that it will not be shown again, and SHALL never be passed as a command-line
+argument to any process it invokes, and SHALL NOT be written to disk in plaintext anywhere.
 
 A `--dry-run` invocation SHALL print every one of the above actions, in order, and SHALL perform
 none of them.
@@ -235,6 +299,12 @@ none of them.
 #### Scenario: The admin-password file is never briefly world-readable
 - **WHEN** `install-service` creates `/etc/tadoru/tadoru.env`
 - **THEN** the file is created at mode 0600 from the first write, not chmod'd afterwards
+- Verified by: `src/analytics/cli/installService.test.ts`
+
+#### Scenario: The written env file never contains the plaintext password
+- **WHEN** `install-service` writes `/etc/tadoru/tadoru.env`
+- **THEN** the file contains `TADORU_ADMIN_PASSWORD_HASH` and `TADORU_ADMIN_PASSWORD_SALT`, and no
+  `TADORU_ADMIN_PASSWORD` line anywhere
 - Verified by: `src/analytics/cli/installService.test.ts`
 
 #### Scenario: `--dry-run` performs no effect

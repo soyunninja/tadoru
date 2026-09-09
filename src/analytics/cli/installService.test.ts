@@ -10,6 +10,7 @@ import {
   stripMemoryDenyWriteExecute,
   writeEnvFileToDisk,
 } from './installService.ts';
+import { verifyPasswordHash } from '../infrastructure/http/adminAuth.ts';
 
 const SAMPLE_TEMPLATE = `[Unit]
 Description=Tadoru
@@ -75,14 +76,21 @@ test('renderUnitFile output never contains MemoryDenyWriteExecute=yes, even if t
   assert.doesNotMatch(rendered, /^\s*MemoryDenyWriteExecute\s*=\s*yes\s*$/m);
 });
 
-test('renderEnvFileContent includes the password, sites, host, port, trusted-proxy flag and language', () => {
-  const content = renderEnvFileContent({ adminPassword: 'sekret', sites: ['example.com', 'other.dev'], lang: 'en' });
-  assert.match(content, /^TADORU_ADMIN_PASSWORD=sekret$/m);
+test('renderEnvFileContent includes the password hash+salt, sites, host, port, trusted-proxy flag and language', () => {
+  const content = renderEnvFileContent({
+    passwordHash: 'deadbeef',
+    passwordSalt: 'cafef00d',
+    sites: ['example.com', 'other.dev'],
+    lang: 'en',
+  });
+  assert.match(content, /^TADORU_ADMIN_PASSWORD_HASH=deadbeef$/m);
+  assert.match(content, /^TADORU_ADMIN_PASSWORD_SALT=cafef00d$/m);
   assert.match(content, /^TADORU_SITES=example\.com,other\.dev$/m);
   assert.match(content, /^TADORU_HOST=127\.0\.0\.1$/m);
   assert.match(content, /^TADORU_PORT=3000$/m);
   assert.match(content, /^TADORU_TRUSTED_PROXY=true$/m);
   assert.match(content, /^TADORU_LANG=en$/m);
+  assert.doesNotMatch(content, /^TADORU_ADMIN_PASSWORD=/m);
 });
 
 function baseOptions(overrides: Partial<Parameters<typeof runInstallService>[0]> = {}) {
@@ -276,6 +284,35 @@ test('runInstallService prints the generated password to stdout but passes it as
   }
 });
 
+test('runInstallService writes TADORU_ADMIN_PASSWORD_HASH and TADORU_ADMIN_PASSWORD_SALT, and never writes plaintext TADORU_ADMIN_PASSWORD anywhere', async () => {
+  const { options, logs, calls } = baseOptions();
+  const result = await runInstallService(options);
+  assert.equal(result.ok, true);
+
+  const writeCall = calls.find((c) => c.port === 'writeEnvFile');
+  assert.ok(writeCall, 'writeEnvFile must be called');
+  const content = writeCall.args[1] as string;
+
+  assert.match(content, /^TADORU_ADMIN_PASSWORD_HASH=[0-9a-f]+$/m);
+  assert.match(content, /^TADORU_ADMIN_PASSWORD_SALT=[0-9a-f]+$/m);
+  assert.doesNotMatch(content, /^TADORU_ADMIN_PASSWORD=/m);
+
+  const output = logs.join('\n');
+  const passwordMatch = /Generated admin password: (\S+)/.exec(output);
+  assert.ok(passwordMatch, 'the plaintext password is still printed to stdout once');
+  const plaintextPassword = passwordMatch[1] as string;
+
+  const hashMatch = /^TADORU_ADMIN_PASSWORD_HASH=([0-9a-f]+)$/m.exec(content);
+  const saltMatch = /^TADORU_ADMIN_PASSWORD_SALT=([0-9a-f]+)$/m.exec(content);
+  assert.ok(hashMatch && saltMatch);
+  assert.equal(
+    verifyPasswordHash(plaintextPassword, { hash: hashMatch[1] as string, salt: saltMatch[1] as string }),
+    true,
+    'the written hash+salt must verify against the printed plaintext password',
+  );
+  assert.doesNotMatch(content, new RegExp(plaintextPassword.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
 test('writeEnvFileToDisk (the real port implementation) creates the file at mode 0600', () => {
   const dir = mkdtempSync(join(tmpdir(), 'tadoru-install-service-'));
   const envPath = join(dir, 'tadoru.env');
@@ -303,7 +340,7 @@ test('runInstallService, wired to the real writeEnvFileToDisk port, writes the e
     assert.equal(result.ok, true);
     const mode = statSync(envPath).mode & 0o777;
     assert.equal(mode, 0o600);
-    assert.match(readFileSync(envPath, 'utf8'), /TADORU_ADMIN_PASSWORD=/);
+    assert.match(readFileSync(envPath, 'utf8'), /TADORU_ADMIN_PASSWORD_HASH=/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

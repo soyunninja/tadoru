@@ -13,6 +13,8 @@ import { runBackup } from '../src/analytics/cli/backup.ts';
 import { runUpdateGeoip } from '../src/analytics/cli/updateGeoip.ts';
 import { runStatusCommand, inspectDatabaseReadOnly, fetchProbeHealth } from '../src/analytics/cli/status.ts';
 import { runRestoreCommand, verifyTadoruDatabaseFile } from '../src/analytics/cli/restore.ts';
+import { runResetPassword } from '../src/analytics/cli/resetPassword.ts';
+import { ENV_FILE_PATH } from '../src/analytics/cli/installService.ts';
 import { loadConfig } from '../src/analytics/infrastructure/config/loadConfig.ts';
 
 const DATABASE_FILE_NAME = 'tadoru.db';
@@ -43,6 +45,7 @@ export type ParsedCommand =
       readonly dryRun: boolean;
       readonly force: boolean;
     }
+  | { readonly kind: 'reset-password'; readonly dryRun: boolean }
   | { readonly kind: 'unknown'; readonly name: string };
 
 /**
@@ -146,6 +149,16 @@ export function parseCli(argv: readonly string[]): ParsedCommand {
         force: values['force'] === true,
       };
     }
+    case 'reset-password': {
+      const { values } = parseArgs({
+        args: rest,
+        options: { 'dry-run': { type: 'boolean' }, help: { type: 'boolean' } },
+        strict: false,
+        allowPositionals: true,
+      });
+      if (values['help'] === true) return { kind: 'help', command: 'reset-password' };
+      return { kind: 'reset-password', dryRun: values['dry-run'] === true };
+    }
     default:
       return { kind: 'unknown', name: first };
   }
@@ -165,6 +178,7 @@ function printUsage(command?: string): void {
         '  install-service   Prepare the machine to run Tadoru under systemd (Linux, root only)',
         '  backup            Vacuum the database into a dated backup file',
         '  restore           Replace the live database with a backup, safely',
+        '  reset-password    Generate a new admin password (root only)',
         '  update-geoip      Refresh the local GeoIP database',
         '  status            Report whether the server is running and the database is healthy',
         '',
@@ -200,6 +214,16 @@ function printUsage(command?: string): void {
       'server is writing to can corrupt both the file being replaced and the one being written, and ' +
       'the server may keep stale data cached after the files change underneath it. Every other check ' +
       '(file exists, is SQLite, carries the Tadoru schema) still runs.',
+    'reset-password':
+      'tadoru reset-password [--dry-run]\n\n' +
+      'Generates a fresh admin password and rewrites the credential lines in ' +
+      `${ENV_FILE_PATH}, hashed, keeping every other line untouched. Requires root, and requires ` +
+      'that file to already exist (run "sudo tadoru install-service" first if it does not). ' +
+      'Backs up the existing file to a dated copy alongside it before rewriting. Never accepts ' +
+      'a password as an argument: it generates one and prints it once, then asks you to run ' +
+      '"sudo systemctl restart tadoru" for it to take effect.\n\n' +
+      '--dry-run   Print the plan and perform no refusal-passing effect; still refuses if not ' +
+      'root or if the env file is missing.',
     'update-geoip': 'tadoru update-geoip\n\nRefreshes the local GeoIP database. Requires network access.',
     status:
       'tadoru status [--json]\n\n' +
@@ -326,6 +350,23 @@ async function runRestoreCliCommand(parsed: Extract<ParsedCommand, { kind: 'rest
   return 0;
 }
 
+async function runResetPasswordCliCommand(parsed: Extract<ParsedCommand, { kind: 'reset-password' }>): Promise<number> {
+  const isRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+
+  const result = await runResetPassword({
+    isRoot,
+    dryRun: parsed.dryRun,
+    envFilePath: ENV_FILE_PATH,
+    log: (message) => console.log(message),
+  });
+
+  if (!result.ok) {
+    console.error(result.error);
+    return 1;
+  }
+  return 0;
+}
+
 export async function main(argv: readonly string[]): Promise<number> {
   const parsed = parseCli(argv);
 
@@ -350,6 +391,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       return runStatusCliCommand(parsed);
     case 'restore':
       return runRestoreCliCommand(parsed);
+    case 'reset-password':
+      return runResetPasswordCliCommand(parsed);
     case 'unknown':
       console.error(`Unknown command: ${parsed.name}\n`);
       printUsage();

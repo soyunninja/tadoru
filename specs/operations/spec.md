@@ -133,3 +133,48 @@ effect — no move, no copy, no delete. The command SHALL exit non-zero on every
 - **GIVEN** `--dry-run` is passed
 - **THEN** every guard still runs, the plan is printed, and no file is moved, copied, or deleted
 - Verified by: `src/analytics/cli/restore.test.ts`
+
+### Requirement: Resetting a lost admin password is one guarded command
+
+Because the admin credential is stored hashed (see `specs/installation/spec.md`), losing it is
+genuinely unrecoverable without rewriting the credential. `tadoru reset-password` SHALL generate a
+new password, hash it, and rewrite only the credential lines of the existing `tadoru.env` file —
+every other line (comments, sites, host, port, and any operator-added setting) SHALL survive
+verbatim and in place. It SHALL NOT regenerate the file from a template.
+
+It SHALL refuse unless run as root, naming `sudo`, since it rewrites a 0600 root-owned file. It
+SHALL refuse when `tadoru.env` does not exist, pointing the operator at `install-service` instead
+of trying to create one from scratch. Both refusals SHALL apply even under `--dry-run`, which
+SHALL otherwise perform no filesystem effect.
+
+Before rewriting, it SHALL copy the existing file aside to a dated backup, the same way `restore`
+backs up the database it is about to replace. The new password SHALL never be accepted as a
+command-line argument — it SHALL be generated internally and printed to stdout exactly once, with
+a warning that it will not be shown again and the exact `systemctl restart tadoru` command needed
+for it to take effect. The command SHALL NOT restart the service itself.
+
+#### Scenario: Refuses without root
+- **WHEN** `reset-password` is run by a non-root user
+- **THEN** it refuses with a message naming `sudo`, and performs no action
+- Verified by: `src/analytics/cli/resetPassword.test.ts`
+
+#### Scenario: Refuses when the env file does not exist
+- **WHEN** `/etc/tadoru/tadoru.env` does not exist
+- **THEN** it refuses with a message pointing at `install-service`, and performs no action
+- Verified by: `src/analytics/cli/resetPassword.test.ts`
+
+#### Scenario: Only the credential lines change
+- **GIVEN** an existing `tadoru.env` with comments, blank lines, and operator-added settings
+- **WHEN** `reset-password` rewrites it
+- **THEN** every line other than the admin-credential lines survives unchanged
+- Verified by: `src/analytics/cli/resetPassword.test.ts`
+
+#### Scenario: The existing file is backed up before being rewritten
+- **WHEN** `reset-password` rewrites `tadoru.env`
+- **THEN** a dated copy of the file as it was beforehand exists alongside it
+- Verified by: `src/analytics/cli/resetPassword.test.ts`
+
+#### Scenario: A dry run touches nothing
+- **GIVEN** `--dry-run` is passed and the prior refusals do not apply
+- **THEN** the plan is printed and no file is read, backed up, or written
+- Verified by: `src/analytics/cli/resetPassword.test.ts`

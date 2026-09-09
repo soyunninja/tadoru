@@ -17,8 +17,13 @@ import { resolveClientIp } from './requestContext.ts';
  */
 export const SESSION_COOKIE_NAME = 'tadoru_session';
 
-const SCRYPT_KEY_LENGTH = 64;
-const SALT_BYTE_LENGTH = 16;
+/**
+ * Exported because `loadConfig` validates a pre-hashed credential pair supplied
+ * by an operator against these exact lengths. Hard-coding the hex lengths there
+ * would let the two drift apart the day either of these changes.
+ */
+export const SCRYPT_KEY_LENGTH = 64;
+export const SALT_BYTE_LENGTH = 16;
 
 export interface PasswordHash {
   readonly salt: string;
