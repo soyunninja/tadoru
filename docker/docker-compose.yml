@@ -3,7 +3,7 @@
 
 services:
   tadoru:
-    image: ghcr.io/OWNER/tadoru:latest
+    image: ghcr.io/soyunninja/tadoru:latest
     container_name: tadoru
     restart: unless-stopped
 

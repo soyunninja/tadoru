@@ -8,7 +8,7 @@
 
 [Unit]
 Description=Tadoru — cookieless web analytics
-Documentation=https://github.com/OWNER/tadoru
+Documentation=https://github.com/soyunninja/tadoru
 After=network-online.target
 Wants=network-online.target
 
