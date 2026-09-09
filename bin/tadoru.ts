@@ -2,6 +2,7 @@
 import { existsSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { dirname, join } from 'node:path';
+import { findPackageRootFrom } from '../src/analytics/infrastructure/packageRoot.ts';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { currentPackageVersion } from '../src/analytics/composition.ts';
@@ -101,18 +102,6 @@ export function parseCli(argv: readonly string[]): ParsedCommand {
   }
 }
 
-/** Walks up from `startDir` to find the directory containing `package.json` — the package root. */
-export function findPackageRoot(startDir: string, exists: (path: string) => boolean = existsSync): string {
-  let dir = startDir;
-  for (let i = 0; i < 5; i += 1) {
-    if (exists(join(dir, 'package.json'))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return startDir;
-}
-
 function printUsage(command?: string): void {
   if (command === undefined) {
     console.log(
@@ -179,7 +168,9 @@ async function runInitCommand(parsed: Extract<ParsedCommand, { kind: 'init' }>):
 
 async function runInstallServiceCommand(parsed: Extract<ParsedCommand, { kind: 'install-service' }>): Promise<number> {
   const moduleDir = dirname(fileURLToPath(import.meta.url));
-  const packageRoot = findPackageRoot(moduleDir);
+  // Resolution lives in packageRoot.ts. A local copy here is how this file
+  // ended up with a depth cap and no name check, unlike the tested one.
+  const packageRoot = findPackageRootFrom(moduleDir) ?? moduleDir;
   const templatePath = join(packageRoot, 'deploy', 'tadoru.service');
   const execPath = process.argv[1] ?? 'tadoru';
   const dataDir = process.env['TADORU_DATA_DIR'] ?? '/var/lib/tadoru';

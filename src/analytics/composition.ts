@@ -6,37 +6,26 @@ import { ok } from '../shared/Result.ts';
 import { loadConfig } from './infrastructure/config/loadConfig.ts';
 import type { LoadConfigOptions, LoadedConfig } from './infrastructure/config/loadConfig.ts';
 import { buildServer } from './infrastructure/http/server.ts';
+import { findPackageRootFrom } from './infrastructure/packageRoot.ts';
 import type { BuildServerOptions, TadoruServer } from './infrastructure/http/server.ts';
 
-const MAX_PARENT_LOOKUPS = 5;
-
 /**
- * Walks up from `startDir` looking for the nearest `package.json`, so the
- * CLI reports the right version whether it runs from `bin/tadoru.ts` in
- * development (one level below the repo root) or from `dist/bin/tadoru.js`
- * in the published package (two levels below it). Returns `"unknown"`
- * rather than throwing if none is found.
+ * Reports the running package version. The directory walk itself lives in
+ * `packageRoot.ts` — a second implementation here is what previously let the
+ * dashboard footer report `0.0.0` from the published layout.
  */
 export function resolvePackageVersion(
   startDir: string,
   readFile: (path: string) => string = (path) => readFileSync(path, 'utf8'),
 ): string {
-  let dir = startDir;
-  for (let i = 0; i < MAX_PARENT_LOOKUPS; i += 1) {
-    try {
-      const raw = readFile(join(dir, 'package.json'));
-      const parsed = JSON.parse(raw) as { version?: string };
-      if (typeof parsed.version === 'string') {
-        return parsed.version;
-      }
-    } catch {
-      // Not here, or not readable/parseable: keep walking up.
-    }
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
+  const packageRoot = findPackageRootFrom(startDir, readFile);
+  if (packageRoot === null) return 'unknown';
+  try {
+    const parsed = JSON.parse(readFile(join(packageRoot, 'package.json'))) as { version?: unknown };
+    return typeof parsed.version === 'string' ? parsed.version : 'unknown';
+  } catch {
+    return 'unknown';
   }
-  return 'unknown';
 }
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));

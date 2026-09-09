@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCli } from './tadoru.ts';
+import { findPackageRootFrom } from '../src/analytics/infrastructure/packageRoot.ts';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 test('parseCli with no arguments returns help', () => {
   assert.deepEqual(parseCli([]), { kind: 'help' });
@@ -70,4 +74,14 @@ test('parseCli with an unrecognized flag on a known command still parses the com
   // parseArgs would throw on an unknown option unless we allow it; we assert
   // the CLI does not crash and instead treats it predictably.
   assert.equal(result.kind, 'start');
+});
+
+test('install-service resolves a package root that actually contains the systemd template', () => {
+  // The CLI reads deploy/tadoru.service relative to the package root. If the
+  // root resolves to the wrong directory the command fails at the point an
+  // operator is setting up their server, which is the worst moment for it.
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const packageRoot = findPackageRootFrom(moduleDir);
+  assert.notEqual(packageRoot, null);
+  assert.ok(existsSync(join(packageRoot as string, 'deploy', 'tadoru.service')));
 });

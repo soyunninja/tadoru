@@ -61,8 +61,37 @@ test('resolvePackageVersion walks up directories until it finds package.json', (
     const version = resolvePackageVersion(nested, (path) => {
       // Simulate real fs: only the file directly under `dir` exists.
       if (path === join(dir, 'package.json')) {
-        return JSON.stringify({ version: '9.9.9' });
+        return JSON.stringify({ name: 'tadoru', version: '9.9.9' });
       }
+      throw new Error('ENOENT');
+    });
+    assert.equal(version, '9.9.9');
+  });
+});
+
+test('resolvePackageVersion ignores a foreign package.json found on the way up', () => {
+  // A vendored or nested manifest between the CLI and the package root must not
+  // be mistaken for ours: reporting a dependency's version in the dashboard
+  // footer would misstate the running version the AGPL network clause requires.
+  withTempDir((dir) => {
+    const nested = join(dir, 'node_modules', 'someone-else', 'lib');
+    const foreignManifest = join(dir, 'node_modules', 'someone-else', 'package.json');
+    const version = resolvePackageVersion(nested, (path) => {
+      if (path === foreignManifest) return JSON.stringify({ name: 'someone-else', version: '1.2.3' });
+      if (path === join(dir, 'package.json')) return JSON.stringify({ name: 'tadoru', version: '9.9.9' });
+      throw new Error('ENOENT');
+    });
+    assert.equal(version, '9.9.9');
+  });
+});
+
+test('resolvePackageVersion is not capped at a fixed number of parent directories', () => {
+  // The published layout is deeper than the development one, and a global npm
+  // prefix deeper still. A depth cap silently returns "unknown" instead.
+  withTempDir((dir) => {
+    const veryNested = join(dir, 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h');
+    const version = resolvePackageVersion(veryNested, (path) => {
+      if (path === join(dir, 'package.json')) return JSON.stringify({ name: 'tadoru', version: '9.9.9' });
       throw new Error('ENOENT');
     });
     assert.equal(version, '9.9.9');
