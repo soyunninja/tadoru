@@ -147,6 +147,11 @@ SHALL refuse when `tadoru.env` does not exist, pointing the operator at `install
 of trying to create one from scratch. Both refusals SHALL apply even under `--dry-run`, which
 SHALL otherwise perform no filesystem effect.
 
+After rewriting, `tadoru.env` SHALL be left at mode 0600 regardless of the mode it had before.
+Setting a creation mode is not enough on its own: this command only ever rewrites a file that
+already exists, and a creation mode is ignored in that case, so a file an operator or a bad umask
+left world-readable would silently stay that way.
+
 Before rewriting, it SHALL copy the existing file aside to a dated backup, the same way `restore`
 backs up the database it is about to replace. The new password SHALL never be accepted as a
 command-line argument — it SHALL be generated internally and printed to stdout exactly once, with
@@ -167,6 +172,12 @@ for it to take effect. The command SHALL NOT restart the service itself.
 - **GIVEN** an existing `tadoru.env` with comments, blank lines, and operator-added settings
 - **WHEN** `reset-password` rewrites it
 - **THEN** every line other than the admin-credential lines survives unchanged
+- Verified by: `src/analytics/cli/resetPassword.test.ts`
+
+#### Scenario: A world-readable env file is tightened to 0600
+- **GIVEN** `tadoru.env` exists at mode 0644
+- **WHEN** it is rewritten
+- **THEN** it is left at mode 0600
 - Verified by: `src/analytics/cli/resetPassword.test.ts`
 
 #### Scenario: The existing file is backed up before being rewritten

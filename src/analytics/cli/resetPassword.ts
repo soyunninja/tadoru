@@ -1,9 +1,9 @@
 import { randomBytes as nodeRandomBytes } from 'node:crypto';
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Result } from '../../shared/Result.ts';
 import { err, ok } from '../../shared/Result.ts';
-import { ADMIN_PASSWORD_BYTE_LENGTH, ENV_FILE_PATH } from './installService.ts';
+import { ADMIN_PASSWORD_BYTE_LENGTH } from './installService.ts';
 import { hashPassword } from '../infrastructure/http/adminAuth.ts';
 
 const ENV_FILE_MODE = 0o600;
@@ -11,15 +11,20 @@ const HASH_LINE_PATTERN = /^TADORU_ADMIN_PASSWORD_HASH=/;
 const SALT_LINE_PATTERN = /^TADORU_ADMIN_PASSWORD_SALT=/;
 const PLAINTEXT_LINE_PATTERN = /^TADORU_ADMIN_PASSWORD=/;
 
-export { ENV_FILE_PATH };
-
 /**
- * Writes with mode 0600 at creation time, exactly like `installService.ts`'s
- * port of the same name — the credential file must never be briefly
- * world-readable, whether it is being created or rewritten.
+ * Writes the credential file at mode 0600 — it must never be readable by
+ * anyone but root, whether it is being created or rewritten.
+ *
+ * Both calls are needed. `writeFileSync`'s `mode` applies only when it creates
+ * the file, so on its own it would be a no-op here: `reset-password` refuses
+ * unless the file already exists. The `chmodSync` is what actually tightens an
+ * existing file an operator, or a bad umask, left world-readable. Keeping the
+ * creation mode as well means the file is never briefly loose in the window
+ * before the chmod lands.
  */
 export function writeEnvFileToDisk(path: string, content: string): void {
   writeFileSync(path, content, { mode: ENV_FILE_MODE });
+  chmodSync(path, ENV_FILE_MODE);
 }
 
 /** Formats a date as `tadoru.env.bak-YYYY-MM-DDTHH-MM-SS`, mirroring `restore.ts`'s `preRestoreFileName`. */

@@ -276,6 +276,25 @@ test('resetPassword.ts defines no spawn/exec-style port that could receive the p
 // Real port implementations, wired end to end against a temp file.
 // ---------------------------------------------------------------------------
 
+test('writeEnvFileToDisk forces mode 0600 on a file that already exists with looser permissions', () => {
+  // writeFileSync's `mode` applies only when it creates the file, so rewriting an
+  // env file an operator (or a bad umask) left world-readable would silently keep
+  // it that way. reset-password only ever rewrites an existing file, so without an
+  // explicit chmod this port would never tighten anything.
+  const dir = mkdtempSync(join(tmpdir(), 'tadoru-env-mode-test-'));
+  try {
+    const envPath = join(dir, 'tadoru.env');
+    writeFileSync(envPath, 'TADORU_SITES=example.com\n', { mode: 0o644 });
+    assert.equal(statSync(envPath).mode & 0o777, 0o644);
+
+    writeEnvFileToDisk(envPath, 'TADORU_SITES=example.com\n');
+
+    assert.equal(statSync(envPath).mode & 0o777, 0o600);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('runResetPassword, wired to the real ports, rewrites a real env file and keeps it at mode 0600', async () => {
   await withTempDirAsync(async (dir) => {
     {

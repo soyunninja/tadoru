@@ -8,13 +8,12 @@ import { currentPackageVersion } from '../src/analytics/composition.ts';
 import { runStartCommand } from '../src/analytics/cli/start.ts';
 import { runInit } from '../src/analytics/cli/init.ts';
 import type { PromptPort } from '../src/analytics/cli/init.ts';
-import { readSystemdTemplate, runInstallService } from '../src/analytics/cli/installService.ts';
+import { readSystemdTemplate, runInstallService, ENV_FILE_PATH } from '../src/analytics/cli/installService.ts';
 import { runBackup } from '../src/analytics/cli/backup.ts';
 import { runUpdateGeoip } from '../src/analytics/cli/updateGeoip.ts';
 import { runStatusCommand, inspectDatabaseReadOnly, fetchProbeHealth } from '../src/analytics/cli/status.ts';
 import { runRestoreCommand, verifyTadoruDatabaseFile } from '../src/analytics/cli/restore.ts';
 import { runResetPassword } from '../src/analytics/cli/resetPassword.ts';
-import { ENV_FILE_PATH } from '../src/analytics/cli/installService.ts';
 import { loadConfig } from '../src/analytics/infrastructure/config/loadConfig.ts';
 
 const DATABASE_FILE_NAME = 'tadoru.db';
