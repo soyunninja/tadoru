@@ -44,7 +44,7 @@ test('GET /health reports the database as reachable', withServer(async (server) 
 
 test('GET /health reports every scheduled job by name', withServer(async (server) => {
   const response = await server.fastify.inject({ method: 'GET', url: '/health' });
-  const body = JSON.parse(response.payload) as { jobs: Record<string, number | null> };
+  const body = JSON.parse(response.payload) as { jobs: Record<string, { lastRunAt: number | null }> };
   assert.ok('saltRotation' in body.jobs);
   assert.ok('rollupBuild' in body.jobs);
   assert.ok('retentionPurge' in body.jobs);
@@ -92,7 +92,7 @@ test('admin login rejects the wrong password', withServer(async (server) => {
 test('the scheduler is running once the server is built', withServer(async (server) => {
   // Jobs have not fired yet (their first interval has not elapsed), but the
   // scheduler must already be tracking them.
-  const names = Object.keys(server.scheduler.getLastRunTimes());
+  const names = server.scheduler.getJobStatuses().map((status) => status.name);
   assert.ok(names.length >= 3);
 }));
 

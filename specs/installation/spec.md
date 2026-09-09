@@ -108,6 +108,88 @@ stop them cleanly on `SIGTERM` so an in-flight batch is flushed rather than lost
 The system SHALL produce a consistent backup with a single command, and restoring SHALL be
 copying that file back.
 
+### Requirement: `/health` reports job health honestly, not just "ran at least once, eventually"
+
+The system SHALL distinguish, for each scheduled job, three facts: whether it has ever been
+attempted, the timestamp of its last *successful* completion, and whether its most recent attempt
+threw. A job's last successful timestamp SHALL NOT be overwritten by a later failing attempt — the
+last time it actually worked SHALL remain visible even while it is currently failing.
+
+The system SHALL judge a job stale when it has gone meaningfully longer than its own configured
+interval without a successful run, using a fixed multiplier of its interval so that ordinary
+jitter (a slow batch, a GC pause, a timer firing a little late under load) is not reported as an
+outage. A job that has never run at all SHALL be judged against how long the scheduler has
+actually been running, not against epoch zero, so a fresh boot SHALL NOT report every job as
+instantly stale.
+
+`GET /health` SHALL report `status: "error"` (HTTP 503) whenever the database is unreachable,
+regardless of job state. Otherwise it SHALL report `status: "degraded"` (HTTP 200) when at least
+one job is stale, and `status: "ok"` (HTTP 200) otherwise. The response SHALL continue to omit
+port, host, data directory, and configured site names.
+
+#### Scenario: A job's last successful run survives a later failure
+- **GIVEN** a job has succeeded before
+- **WHEN** its next attempt throws
+- **THEN** `/health` still reports the earlier successful timestamp, and separately reports the
+  job as currently failed
+- Verified by: `src/analytics/infrastructure/scheduler/Scheduler.test.ts`
+
+#### Scenario: A job that has never run is judged against scheduler uptime, not epoch zero
+- **GIVEN** the scheduler started recently and a job has never run
+- **WHEN** less time has passed than its staleness threshold
+- **THEN** the job is reported as not stale
+- Verified by: `src/analytics/infrastructure/http/jobStaleness.test.ts`
+
+#### Scenario: A job well past its interval with no success is reported stale
+- **GIVEN** a job's last success (or, if it has never run, the scheduler's start time) is older
+  than the staleness threshold
+- **WHEN** `/health` is requested
+- **THEN** that job is reported `stale: true` and the overall status is `degraded`
+- Verified by: `src/analytics/infrastructure/http/jobStaleness.test.ts`,
+  `src/analytics/infrastructure/http/healthRoutes.test.ts`
+
+#### Scenario: Database unreachability always wins the top-level status
+- **GIVEN** the database is unreachable and a job is also stale
+- **WHEN** `/health` is requested
+- **THEN** the response is `status: "error"` with HTTP 503, not `"degraded"`
+- Verified by: `src/analytics/infrastructure/http/healthRoutes.test.ts`
+
+### Requirement: `tadoru status` answers "is Tadoru working?" in one command
+
+The system SHALL provide a `tadoru status` command that reports, without requiring any other
+tool: the installed version and data directory; whether a server is answering `/health` and on
+which port, resolved by probing candidates in the same order `bindPort.ts` binds them, never by
+guessing or hardcoding a port; whether the database opens read-only and, if so, its size, total
+event count, oldest/newest event, and each configured site's event count and last event; the
+configured retention period, with an explicit callout when it exceeds the consent-exemption
+threshold; and, only when a server answered, each scheduled job's health as reported by that
+server's `/health` — job state SHALL NOT be fabricated when no server answered.
+
+It SHALL open the database strictly read-only, so it can never interfere with the live server or
+corrupt anything. It SHALL exit `0` only when a server answered *and* the database opened
+successfully, so it can be used as a monitoring check; a stale job or retention past the exemption
+window is reported, not treated as a command failure on its own. It SHALL NOT read or print
+`config.admin` or `config.session` fields, so it can never leak the admin password hash or the
+session secret. A `--json` flag SHALL emit the same information as machine-readable JSON.
+
+#### Scenario: A server is answering and the database is readable
+- **WHEN** a server answers `/health` on one of the candidate ports and the database opens
+- **THEN** `tadoru status` exits `0` and reports the answering port, database contents, and each
+  scheduled job's health from that server's `/health` response
+- Verified by: `src/analytics/cli/status.test.ts`
+
+#### Scenario: No server is answering
+- **WHEN** no candidate port answers `/health`
+- **THEN** `tadoru status` exits non-zero, states plainly that no server is answering, still
+  reports the database section from its own read-only inspection, and reports job state as
+  unavailable rather than guessing it
+- Verified by: `src/analytics/cli/status.test.ts`
+
+#### Scenario: The database cannot be read
+- **WHEN** the database file is missing or is not a valid SQLite database
+- **THEN** `tadoru status` exits non-zero, reports a clear reason, and does not crash
+- Verified by: `src/analytics/cli/status.test.ts`
+
 ### Requirement: `install-service` performs the installation it claims to perform
 
 `sudo tadoru install-service --sites <domains>` SHALL leave a fresh Linux host ready to run

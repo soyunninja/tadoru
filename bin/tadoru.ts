@@ -11,6 +11,8 @@ import type { PromptPort } from '../src/analytics/cli/init.ts';
 import { readSystemdTemplate, runInstallService } from '../src/analytics/cli/installService.ts';
 import { runBackup } from '../src/analytics/cli/backup.ts';
 import { runUpdateGeoip } from '../src/analytics/cli/updateGeoip.ts';
+import { runStatusCommand, inspectDatabaseReadOnly, fetchProbeHealth } from '../src/analytics/cli/status.ts';
+import { loadConfig } from '../src/analytics/infrastructure/config/loadConfig.ts';
 
 const DATABASE_FILE_NAME = 'tadoru.db';
 
@@ -33,6 +35,7 @@ export type ParsedCommand =
     }
   | { readonly kind: 'backup' }
   | { readonly kind: 'update-geoip' }
+  | { readonly kind: 'status'; readonly json: boolean }
   | { readonly kind: 'unknown'; readonly name: string };
 
 /**
@@ -111,6 +114,16 @@ export function parseCli(argv: readonly string[]): ParsedCommand {
       if (values['help'] === true) return { kind: 'help', command: 'update-geoip' };
       return { kind: 'update-geoip' };
     }
+    case 'status': {
+      const { values } = parseArgs({
+        args: rest,
+        options: { json: { type: 'boolean' }, help: { type: 'boolean' } },
+        strict: false,
+        allowPositionals: true,
+      });
+      if (values['help'] === true) return { kind: 'help', command: 'status' };
+      return { kind: 'status', json: values['json'] === true };
+    }
     default:
       return { kind: 'unknown', name: first };
   }
@@ -130,6 +143,7 @@ function printUsage(command?: string): void {
         '  install-service   Prepare the machine to run Tadoru under systemd (Linux, root only)',
         '  backup            Vacuum the database into a dated backup file',
         '  update-geoip      Refresh the local GeoIP database',
+        '  status            Report whether the server is running and the database is healthy',
         '',
         'Options:',
         '  -h, --help        Show this help',
@@ -151,6 +165,11 @@ function printUsage(command?: string): void {
       'enable the service — run "sudo systemctl enable --now tadoru" yourself when ready.',
     backup: 'tadoru backup\n\nVacuums the database into a dated backup file inside the data directory.',
     'update-geoip': 'tadoru update-geoip\n\nRefreshes the local GeoIP database. Requires network access.',
+    status:
+      'tadoru status [--json]\n\n' +
+      'Reports whether a server is answering /health, whether the database opens and what it holds, ' +
+      'per-site event counts, retention, and scheduled job health. Exits 0 only when a server answered ' +
+      'and the database opened successfully, so it doubles as a monitoring check.',
   };
   console.log(perCommand[command] ?? `Unknown command: ${command}`);
 }
@@ -233,6 +252,20 @@ async function runUpdateGeoipCommand(): Promise<number> {
   return 0;
 }
 
+async function runStatusCliCommand(parsed: Extract<ParsedCommand, { kind: 'status' }>): Promise<number> {
+  return runStatusCommand(
+    { json: parsed.json },
+    {
+      loadConfig,
+      resolveVersion: currentPackageVersion,
+      inspectDatabase: inspectDatabaseReadOnly,
+      probeHealth: fetchProbeHealth,
+      now: () => Date.now(),
+      log: (message) => console.log(message),
+    },
+  );
+}
+
 export async function main(argv: readonly string[]): Promise<number> {
   const parsed = parseCli(argv);
 
@@ -253,6 +286,8 @@ export async function main(argv: readonly string[]): Promise<number> {
       return runBackupCommand();
     case 'update-geoip':
       return runUpdateGeoipCommand();
+    case 'status':
+      return runStatusCliCommand(parsed);
     case 'unknown':
       console.error(`Unknown command: ${parsed.name}\n`);
       printUsage();

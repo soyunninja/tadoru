@@ -151,7 +151,9 @@ export function buildServer(options: BuildServerOptions): TadoruServer {
       db.prepare('SELECT 1').get();
       return true;
     },
-    jobStatus: () => scheduler.getLastRunTimes(),
+    jobStatuses: () => scheduler.getJobStatuses(),
+    schedulerStartedAt: () => scheduler.getStartedAt(),
+    now: () => clock.now().getTime(),
   });
 
   registerAdminAuthRoutes(fastify, {

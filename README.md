@@ -301,8 +301,19 @@ running in the page.
 systemctl status tadoru      # is it running
 journalctl -u tadoru -f      # what is it doing
 curl localhost:3000/health   # database and scheduled jobs
+tadoru status                # one command answering "is Tadoru working?"
 tadoru backup                # a consistent copy of the whole database
 sudo npm update -g tadoru && sudo systemctl restart tadoru
+```
+
+**One command, one answer.** `tadoru status` checks whether a server is answering, opens the
+database read-only to report its size and per-site event counts, and shows each scheduled job's
+health — without you having to chain `systemctl`, `curl` and `sqlite3` by hand. It exits non-zero
+if the server isn't answering or the database can't be read, so it doubles as a monitoring check.
+Add `--json` for scripting:
+
+```bash
+tadoru status --json | jq .server
 ```
 
 Salt rotation, nightly rollups and retention purging run inside the process. There is no crontab

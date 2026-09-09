@@ -84,6 +84,18 @@ test('parseCli "update-geoip" returns the update-geoip command', () => {
   assert.deepEqual(parseCli(['update-geoip']), { kind: 'update-geoip' });
 });
 
+test('parseCli "status" with no flags returns status defaults', () => {
+  assert.deepEqual(parseCli(['status']), { kind: 'status', json: false });
+});
+
+test('parseCli "status --json"', () => {
+  assert.deepEqual(parseCli(['status', '--json']), { kind: 'status', json: true });
+});
+
+test('parseCli "status --help" returns help for status', () => {
+  assert.deepEqual(parseCli(['status', '--help']), { kind: 'help', command: 'status' });
+});
+
 test('parseCli with an unknown command returns unknown', () => {
   assert.deepEqual(parseCli(['frobnicate']), { kind: 'unknown', name: 'frobnicate' });
 });

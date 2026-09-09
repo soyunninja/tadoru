@@ -109,7 +109,7 @@ test('stop() is idempotent and safe to call twice', () => {
 });
 
 test('records the last successful run time of each job for health reporting', async () => {
-  let now = 5000;
+  const now = 5000;
   const timers = createFakeTimers();
   const scheduler = new Scheduler({
     jobs: [buildJob('rotateSalt', [])],
@@ -117,14 +117,128 @@ test('records the last successful run time of each job for health reporting', as
     clock: { now: () => new Date(now) },
   });
 
-  assert.equal(scheduler.getLastRunTimes()['rotateSalt'], undefined);
+  assert.equal(scheduler.getJobStatuses().find((s) => s.name === 'rotateSalt')?.lastRunAt, undefined);
 
   scheduler.start();
   timers.tick(1000);
   await Promise.resolve();
   await Promise.resolve();
 
-  assert.equal(scheduler.getLastRunTimes()['rotateSalt'], now);
+  assert.equal(scheduler.getJobStatuses().find((s) => s.name === 'rotateSalt')?.lastRunAt, now);
+  scheduler.stop();
+});
+
+test('getJobStatuses reports hasRun as true after the first attempt, even a failing one', async () => {
+  const timers = createFakeTimers();
+  let calls = 0;
+  const scheduler = new Scheduler({
+    jobs: [
+      {
+        name: 'flaky',
+        intervalMs: 1000,
+        run: async () => {
+          calls += 1;
+          if (calls === 1) throw new Error('boom');
+        },
+      },
+    ],
+    timers,
+  });
+
+  assert.equal(scheduler.getJobStatuses()[0]?.hasRun, false);
+
+  scheduler.start();
+  timers.tick(1000);
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(scheduler.getJobStatuses()[0]?.hasRun, true);
+  scheduler.stop();
+});
+
+test('getJobStatuses reports lastRunFailed true right after a throwing run, and false again after a subsequent success', async () => {
+  const timers = createFakeTimers();
+  let calls = 0;
+  const scheduler = new Scheduler({
+    jobs: [
+      {
+        name: 'flaky',
+        intervalMs: 1000,
+        run: async () => {
+          calls += 1;
+          if (calls === 1) throw new Error('boom');
+        },
+      },
+    ],
+    timers,
+  });
+
+  scheduler.start();
+  timers.tick(1000);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(scheduler.getJobStatuses()[0]?.lastRunFailed, true);
+
+  timers.tick(1000);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(scheduler.getJobStatuses()[0]?.lastRunFailed, false);
+
+  scheduler.stop();
+});
+
+test('getJobStatuses leaves lastRunAt untouched by a failing run that follows a prior success', async () => {
+  const timers = createFakeTimers();
+  let now = 1000;
+  let calls = 0;
+  const scheduler = new Scheduler({
+    jobs: [
+      {
+        name: 'sometimesFlaky',
+        intervalMs: 1000,
+        run: async () => {
+          calls += 1;
+          if (calls === 2) throw new Error('boom');
+        },
+      },
+    ],
+    timers,
+    clock: { now: () => new Date(now) },
+  });
+
+  scheduler.start();
+  now = 1000;
+  timers.tick(1000); // first run: succeeds at ts 1000
+  await Promise.resolve();
+  await Promise.resolve();
+  const successAt = scheduler.getJobStatuses()[0]?.lastRunAt;
+  assert.equal(successAt, 1000);
+
+  now = 2000;
+  timers.tick(1000); // second run: throws
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const status = scheduler.getJobStatuses()[0];
+  assert.equal(status?.lastRunAt, successAt);
+  assert.equal(status?.lastRunFailed, true);
+
+  scheduler.stop();
+});
+
+test('getStartedAt is undefined before start() and set to the clock time once start() runs', () => {
+  const timers = createFakeTimers();
+  const scheduler = new Scheduler({
+    jobs: [buildJob('rotateSalt', [])],
+    timers,
+    clock: { now: () => new Date(42_000) },
+  });
+
+  assert.equal(scheduler.getStartedAt(), undefined);
+
+  scheduler.start();
+
+  assert.equal(scheduler.getStartedAt(), 42_000);
   scheduler.stop();
 });
 
