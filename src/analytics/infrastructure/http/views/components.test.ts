@@ -126,27 +126,81 @@ test('renderLogoutForm is a plain POST form with no script', () => {
   assert.ok(!out.includes('<script'));
 });
 
-test('renderTrackingSnippet displays the documented script tag plus noscript pixel fallback as escaped, copyable text (never as a live element — the page CSP forbids scripts)', () => {
+/** Strips real HTML tags (the syntax-highlighting spans, <pre>, <code>, ...) to get back the plain visible text, leaving already-escaped entities (e.g. "&lt;") untouched since those are text, not markup. */
+function visibleText(markup: string): string {
+  return markup.replace(/<[^>]+>/g, '');
+}
+
+test('renderTrackingSnippet displays the documented script tag plus noscript pixel fallback as escaped, copyable text (never as a live element built from the host — the page CSP only allows the fixed copy-button script)', () => {
   const out = renderTrackingSnippet('tadoru.example.com', true).toString();
-  // The literal characters "<script" must never appear (that would be a live
-  // element); the escaped form is what a browser renders back as readable,
+  const text = visibleText(out);
+  // The escaped form is what a browser renders back as readable,
   // copy-pasteable text for the operator to paste into their own site.
-  assert.ok(!out.includes('<script'));
-  assert.match(out, /&lt;script defer src="https:\/\/tadoru\.example\.com\/t\.js"&gt;&lt;\/script&gt;/);
+  assert.match(text, /&lt;script defer src="https:\/\/tadoru\.example\.com\/t\.js"&gt;&lt;\/script&gt;/);
   assert.match(
-    out,
+    text,
     /&lt;noscript&gt;&lt;img src="https:\/\/tadoru\.example\.com\/t\.gif" alt="" width="1" height="1"&gt;&lt;\/noscript&gt;/,
   );
+  // The literal characters "<script defer" or "<noscript>" must never appear
+  // as real markup (that would mean the displayed snippet text turned into a
+  // live element). The one real <script> tag in the output is the fixed,
+  // developer-authored copy-button behaviour, asserted separately below.
+  assert.ok(!out.includes('<script defer'));
+  assert.ok(!out.includes('<noscript>'));
 });
 
 test('renderTrackingSnippet uses http when the request was not secure', () => {
   const out = renderTrackingSnippet('localhost:8080', false).toString();
-  assert.match(out, /http:\/\/localhost:8080\/t\.js/);
+  assert.match(visibleText(out), /http:\/\/localhost:8080\/t\.js/);
 });
 
 test('renderTrackingSnippet escapes an attacker-controlled Host header', () => {
   const out = renderTrackingSnippet('"><script>alert(1)</script>', true).toString();
   assert.ok(!out.includes('<script>alert(1)</script>'));
+  // The hostile value must show up only as escaped entities, composed via the
+  // `html` tag's normal interpolation — never unwrapped by a post-hoc raw().
+  assert.match(out, /&quot;&gt;&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+});
+
+test('renderTrackingSnippet renders IDE-style syntax highlighting for tag names, attribute names, string values and punctuation', () => {
+  const out = renderTrackingSnippet('tadoru.example.com', true).toString();
+  assert.match(out, /<span class="tag">script<\/span>/);
+  assert.match(out, /<span class="tag">noscript<\/span>/);
+  assert.match(out, /<span class="tag">img<\/span>/);
+  assert.match(out, /<span class="attr">defer<\/span>/);
+  assert.match(out, /<span class="attr">src<\/span>/);
+  assert.match(out, /<span class="string">"https:\/\/tadoru\.example\.com\/t\.js"<\/span>/);
+  assert.match(out, /<span class="punct">/);
+});
+
+test('renderTrackingSnippet keeps the full snippet as plain selectable text in the DOM, not hidden behind the copy button', () => {
+  const out = renderTrackingSnippet('tadoru.example.com', true).toString();
+  assert.match(out, /<code id="[^"]+">[\s\S]*<\/code>/);
+  // The snippet text itself is present outside of any [hidden]/display:none
+  // wrapper — the copy button is an addition, not a reveal gate.
+  const codeMatch = out.match(/<code id="[^"]+">([\s\S]*?)<\/code>/);
+  assert.ok(codeMatch);
+  assert.ok(!(codeMatch?.[1] ?? '').includes('hidden'));
+});
+
+test('renderTrackingSnippet includes a copy button labelled per locale, with a copied-confirmation slot, wired to the fixed inline script by a static id', () => {
+  const enOut = renderTrackingSnippet('tadoru.example.com', true, 'en').toString();
+  assert.match(enOut, /<button type="button" class="copy-button"[^>]*>Copy<\/button>/);
+  assert.match(enOut, /data-copied-text="Copied!"/);
+
+  const esOut = renderTrackingSnippet('tadoru.example.com', true, 'es').toString();
+  assert.match(esOut, /<button type="button" class="copy-button"[^>]*>Copiar<\/button>/);
+  assert.match(esOut, /data-copied-text="¡Copiado!"/);
+
+  const jaOut = renderTrackingSnippet('tadoru.example.com', true, 'ja').toString();
+  assert.match(jaOut, />コピー<\/button>/);
+  assert.match(jaOut, /data-copied-text="コピーしました"/);
+});
+
+test('renderTrackingSnippet emits the fixed copy-button script exactly once', () => {
+  const out = renderTrackingSnippet('tadoru.example.com', true).toString();
+  const scriptOccurrences = out.split('<script>').length - 1;
+  assert.equal(scriptOccurrences, 1);
 });
 
 test('the country table shows a flag and the country name, not a bare ISO code', () => {

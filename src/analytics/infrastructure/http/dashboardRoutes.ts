@@ -30,6 +30,7 @@ import { renderLoginPage } from './views/loginPage.ts';
 import type { RangeKey } from './views/overviewPage.ts';
 import { renderOverviewPage } from './views/overviewPage.ts';
 import { sumMetricRows, renderLogoutForm, renderTrackingSnippet } from './views/components.ts';
+import { COPY_BUTTON_SCRIPT_SHA256 } from './views/copyScript.ts';
 import type { Locale } from '../i18n/Locale.ts';
 import { resolveLocale } from '../i18n/Locale.ts';
 import { messagesFor } from '../i18n/messages.ts';
@@ -84,9 +85,14 @@ const SESSION_VALUE_PREFIX = 'admin-session';
 
 const DASHBOARD_LOGIN_RATE_LIMIT_KEY = 'dashboard-login';
 
+// script-src carries exactly one source: the sha256 hash of
+// COPY_BUTTON_SCRIPT_SOURCE (see copyScript.ts), computed there at module
+// load via node:crypto — never hand-written here. That is what the sites
+// page's copy-button script (and only that script) is allowed to run under;
+// there is no 'unsafe-inline' and no 'self' fallback.
 const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   'Content-Security-Policy':
-    "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; form-action 'self'; frame-ancestors 'none'",
+    `default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; script-src 'sha256-${COPY_BUTTON_SCRIPT_SHA256}'; form-action 'self'; frame-ancestors 'none'`,
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'same-origin',
 };
@@ -236,16 +242,26 @@ function renderSitesPage(options: {
 </li>`;
   });
 
-  // Rendered once, below the list, rather than under each site: the snippet
-  // carries no site key — `renderTrackingSnippet` takes only the host — so
-  // every site's block was byte-identical, and on a four-site installation the
-  // repetition was most of the page.
+  // Rendered once, in its own column, rather than under each site: the
+  // snippet carries no site key — `renderTrackingSnippet` takes only the host
+  // — so every site's block was byte-identical, and on a four-site
+  // installation the repetition was most of the page. The list comes first
+  // in the markup and the snippet second, which `.sites-grid` (layout.ts)
+  // turns into left/right columns on desktop; on a narrow screen the same
+  // source order collapses to one column with the snippet last, with no
+  // extra CSS `order` needed.
   const listOrEmpty =
     options.sites.length === 0
       ? html`<p class="muted">${messages.sites.empty}</p>`
-      : html`<ul>${items}</ul>
-<p class="muted">${messages.sites.snippetIntro}</p>
-${renderTrackingSnippet(options.host, options.secure)}`;
+      : html`<div class="sites-grid">
+  <div class="sites-list">
+    <ul>${items}</ul>
+  </div>
+  <div class="sites-snippet card">
+    <p class="muted">${messages.sites.snippetIntro}</p>
+    ${renderTrackingSnippet(options.host, options.secure, options.locale)}
+  </div>
+</div>`;
 
   const body = html`<h1>${messages.sites.heading}</h1>
 ${listOrEmpty}

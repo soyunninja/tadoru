@@ -66,6 +66,22 @@ test('parameterised messages interpolate their arguments', () => {
   assert.equal(messagesFor('en').chart.barTitle('2026-01-01', '3'), '2026-01-01: 3 visitors');
 });
 
+test('every locale translates the snippet copy button and its confirmation, and none reuses the English string', () => {
+  const en = messagesFor('en');
+  for (const locale of SUPPORTED_LOCALES) {
+    const messages = messagesFor(locale);
+    assert.ok(messages.sites.copyButton.length > 0, `${locale} copyButton is empty`);
+    assert.ok(messages.sites.copiedConfirmation.length > 0, `${locale} copiedConfirmation is empty`);
+    if (locale === 'en') continue;
+    assert.notEqual(messages.sites.copyButton, en.sites.copyButton, `${locale} copyButton matches English`);
+    assert.notEqual(
+      messages.sites.copiedConfirmation,
+      en.sites.copiedConfirmation,
+      `${locale} copiedConfirmation matches English`,
+    );
+  }
+});
+
 test('the activity summary gets the plural right in every locale', () => {
   // "1 events total" on the line that exists to reassure a new operator reads
   // as carelessness, so each locale applies its own rule.

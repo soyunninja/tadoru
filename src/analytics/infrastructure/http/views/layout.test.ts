@@ -126,6 +126,32 @@ test('the palette meets WCAG AA contrast, so a repaint cannot quietly break legi
   assert.ok(contrastRatio(accent, surface) >= 4.5, `accent text on a card: ${contrastRatio(accent, surface).toFixed(2)}:1`);
 });
 
+test('the syntax-highlighting palette meets WCAG AA contrast against the code block background', () => {
+  // The tracking snippet's code block is `code`/`pre`, styled with
+  // `background: var(--surface-2)` — not the page background or the card
+  // surface — so that is what each highlighting colour must clear 4.5:1
+  // against.
+  const page = renderLayout({ title: 'x', body: html``, version: '0.1.0' }).toString();
+  const codeBackground = token(page, 'surface-2');
+  for (const name of ['syntax-tag', 'syntax-attr', 'syntax-string', 'syntax-punct']) {
+    const color = token(page, name);
+    assert.ok(
+      contrastRatio(color, codeBackground) >= 4.5,
+      `--${name} (${color}) on the code background (${codeBackground}): ${contrastRatio(color, codeBackground).toFixed(2)}:1`,
+    );
+  }
+});
+
+test('the sites page layout is a two-column grid that collapses to one column on narrow screens', () => {
+  const page = renderLayout({ title: 'x', body: html``, version: '0.1.0' }).toString();
+  assert.match(page, /\.sites-grid\s*\{[^}]*display:\s*grid;[^}]*\}/);
+  assert.match(page, /\.sites-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+minmax\(0,\s*1fr\);[^}]*\}/);
+  assert.match(
+    page,
+    /@media[^{]*\{\s*\.sites-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);[^}]*\}\s*\}/,
+  );
+});
+
 test('cards sit above the page background, never below it', () => {
   // Making the page lighter than its cards inverts the depth: the surfaces have
   // to move with it.

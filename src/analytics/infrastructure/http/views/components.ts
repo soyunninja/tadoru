@@ -6,6 +6,7 @@ import { countryFlagEmoji, countryDisplayName } from './country.ts';
 import { operatingSystemIcon } from './operatingSystem.ts';
 import { browserIcon } from './browser.ts';
 import { deviceIcon } from './device.ts';
+import { renderCopyButtonScript } from './copyScript.ts';
 import type { Locale } from '../../i18n/Locale.ts';
 import { DEFAULT_LOCALE } from '../../i18n/Locale.ts';
 import { messagesFor } from '../../i18n/messages.ts';
@@ -278,15 +279,60 @@ export function renderLogoutForm(locale: Locale = DEFAULT_LOCALE): SafeHtml {
   return html`<form method="post" action="/logout" class="inline"><button type="submit">${messagesFor(locale).common.logOut}</button></form>`;
 }
 
+const TRACKING_SNIPPET_CODE_ID = 'tracking-snippet-code';
+
+/**
+ * Small, IDE-style syntax-highlighting building blocks for
+ * `renderTrackingSnippet` below. Each one is its own `html`-tagged template,
+ * so any interpolated value (in practice, only ever the untrusted `host`,
+ * via `syntaxString`) goes through the tag's ordinary escaping. The full
+ * snippet is a composition of these fragments — never a plain string that
+ * gets regex-wrapped in `<span>`s and then passed through `raw()`, which is
+ * exactly the pattern the warning on `raw()` in escapeHtml.ts calls out as
+ * reintroducing XSS.
+ */
+function syntaxTag(name: string): SafeHtml {
+  return html`<span class="tag">${name}</span>`;
+}
+function syntaxAttr(name: string): SafeHtml {
+  return html`<span class="attr">${name}</span>`;
+}
+function syntaxPunct(text: string): SafeHtml {
+  return html`<span class="punct">${text}</span>`;
+}
+function syntaxString(value: string): SafeHtml {
+  return html`<span class="string">"${value}"</span>`;
+}
+
 /**
  * Ready-to-copy install snippet for a measured site: the deferred script tag
  * plus the no-JS pixel fallback (README "Install" / "Visitors without
  * JavaScript"). Identical for every site — site identity comes from the
- * `Origin`/`Referer` header at collection time, not from the snippet. Not
- * locale-dependent: it is source code, not prose.
+ * `Origin`/`Referer` header at collection time, not from the snippet; the
+ * snippet's own markup is source code, not prose, so `locale` only affects
+ * the copy button's label and its "copied" confirmation.
+ *
+ * Rendered as syntax-highlighted, plain selectable text — never as live
+ * markup — plus a copy button wired to the one fixed inline script this
+ * dashboard ships (`renderCopyButtonScript`, included here so it always
+ * accompanies its button). With scripts blocked the snippet is still full,
+ * selectable text in the DOM, and the button simply does nothing.
  */
-export function renderTrackingSnippet(host: string, secure: boolean): SafeHtml {
+export function renderTrackingSnippet(host: string, secure: boolean, locale: Locale = DEFAULT_LOCALE): SafeHtml {
   const scheme = secure ? 'https' : 'http';
-  return html`<pre><code>&lt;script defer src="${scheme}://${host}/t.js"&gt;&lt;/script&gt;
-&lt;noscript&gt;&lt;img src="${scheme}://${host}/t.gif" alt="" width="1" height="1"&gt;&lt;/noscript&gt;</code></pre>`;
+  const messages = messagesFor(locale);
+
+  const scriptLine = html`${syntaxPunct('<')}${syntaxTag('script')} ${syntaxAttr('defer')} ${syntaxAttr('src')}${syntaxPunct('=')}${syntaxString(`${scheme}://${host}/t.js`)}${syntaxPunct('>')}${syntaxPunct('</')}${syntaxTag('script')}${syntaxPunct('>')}`;
+
+  const noscriptLine = html`${syntaxPunct('<')}${syntaxTag('noscript')}${syntaxPunct('>')}${syntaxPunct('<')}${syntaxTag('img')} ${syntaxAttr('src')}${syntaxPunct('=')}${syntaxString(`${scheme}://${host}/t.gif`)} ${syntaxAttr('alt')}${syntaxPunct('=')}${syntaxString('')} ${syntaxAttr('width')}${syntaxPunct('=')}${syntaxString('1')} ${syntaxAttr('height')}${syntaxPunct('=')}${syntaxString('1')}${syntaxPunct('>')}${syntaxPunct('</')}${syntaxTag('noscript')}${syntaxPunct('>')}`;
+
+  return html`<div class="snippet">
+  <pre><code id="${TRACKING_SNIPPET_CODE_ID}">${scriptLine}
+${noscriptLine}</code></pre>
+  <div class="snippet-actions">
+    <button type="button" class="copy-button" data-copy-target="${TRACKING_SNIPPET_CODE_ID}" data-copied-text="${messages.sites.copiedConfirmation}">${messages.sites.copyButton}</button>
+    <span class="copy-feedback" hidden></span>
+  </div>
+</div>
+${renderCopyButtonScript()}`;
 }

@@ -89,6 +89,14 @@ const STYLE = `
     --accent: #f0883e;
     --ok: #3fb950;
     --warn: #d98a2b;
+    /* Syntax highlighting for the tracking snippet, styled like an IDE's dark
+       theme. Each colour clears 4.5:1 against --surface-2, the code block's
+       background — layout.test.ts computes those ratios the same way it does
+       for the rest of the palette above. */
+    --syntax-tag: #7ee787;
+    --syntax-attr: #79c0ff;
+    --syntax-string: #a5d6ff;
+    --syntax-punct: #c9d1d9;
   }
   * { box-sizing: border-box; }
   body {
@@ -144,6 +152,24 @@ const STYLE = `
     letter-spacing: 0.01em;
   }
   .card-sub { color: var(--muted); font-size: 0.78rem; margin: 0.15rem 0 0.9rem; }
+
+  /* --- sites page: list and tracking snippet side by side on desktop ---- */
+  /* Source order is list, then snippet — on desktop that already places the
+     list in the first grid column and the snippet in the second (left/right)
+     with no explicit CSS order property, and collapsing to one column below
+     the breakpoint keeps the snippet last, exactly because it is already
+     last in the markup. minmax(0, 1fr) (rather than a bare 1fr) is what
+     stops the snippet's own scrollable code block from forcing the grid
+     track — and therefore the page — wider than the viewport. */
+  .sites-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: start;
+  }
+  @media (max-width: 860px) {
+    .sites-grid { grid-template-columns: minmax(0, 1fr); }
+  }
 
   /* --- KPI tiles --------------------------------------------------------- */
   .headline {
@@ -269,7 +295,24 @@ const STYLE = `
   form.inline { display: inline; }
   code, pre { background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; }
   code { padding: 0.1rem 0.3rem; }
+  /* The only element allowed to scroll horizontally: the snippet can be wider
+     than its column, but the page body never gains a horizontal scrollbar. */
   pre { padding: 0.75rem; overflow-x: auto; }
+
+  /* --- tracking snippet: copy button and confirmation -------------------- */
+  .snippet-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 0.6rem;
+  }
+  .copy-feedback { color: var(--ok); font-size: 0.8rem; }
+
+  /* --- syntax highlighting for the tracking snippet, IDE-style ----------- */
+  .tag { color: var(--syntax-tag); }
+  .attr { color: var(--syntax-attr); }
+  .string { color: var(--syntax-string); }
+  .punct { color: var(--syntax-punct); }
   footer {
     max-width: 72rem;
     margin: 1.5rem auto 0;

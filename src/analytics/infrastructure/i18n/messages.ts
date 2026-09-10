@@ -40,6 +40,10 @@ export interface Messages {
      * reassure a new operator reads as sloppiness.
      */
     readonly activitySummary: (lastSeen: string, totalEvents: string, count: number) => string;
+    /** Label for the button that copies the tracking snippet to the clipboard. */
+    readonly copyButton: string;
+    /** Shown briefly next to the copy button after it is used, confirming the copy succeeded. */
+    readonly copiedConfirmation: string;
   };
   readonly notFound: {
     readonly pageTitle: string;
@@ -113,11 +117,13 @@ const en: Messages = {
     pageTitle: 'Sites — Tadoru',
     heading: 'Sites',
     empty: 'No sites configured.',
-    snippetIntro: 'The same snippet goes on every site above — a site is recognised by its own domain, so there is no key to swap.',
+    snippetIntro: 'The same snippet goes on every one of your sites — each is recognised by its own domain, so there is no key to swap.',
     activityNever:
       'No events received yet. Check that the tracking snippet is installed, and that the domain matches exactly — including "www." if your site uses it.',
     activitySummary: (lastSeen, totalEvents, count) =>
       `Last event ${lastSeen} · ${totalEvents} ${count === 1 ? 'event' : 'events'} total`,
+    copyButton: 'Copy',
+    copiedConfirmation: 'Copied!',
   },
   notFound: {
     pageTitle: 'Not found — Tadoru',
@@ -206,11 +212,13 @@ const es: Messages = {
     pageTitle: 'Sitios — Tadoru',
     heading: 'Sitios',
     empty: 'No hay sitios configurados.',
-    snippetIntro: 'El mismo snippet vale para todos los sitios de arriba: cada sitio se reconoce por su propio dominio, así que no hay ninguna clave que cambiar.',
+    snippetIntro: 'El mismo snippet vale para todos tus sitios: cada uno se reconoce por su propio dominio, así que no hay ninguna clave que cambiar.',
     activityNever:
       'Todavía no se ha recibido ningún evento. Comprueba que el fragmento de seguimiento esté instalado y que el dominio coincida exactamente — incluyendo «www.» si tu sitio lo usa.',
     activitySummary: (lastSeen, totalEvents, count) =>
       `Último evento ${lastSeen} · ${totalEvents} ${count === 1 ? 'evento' : 'eventos'} en total`,
+    copyButton: 'Copiar',
+    copiedConfirmation: '¡Copiado!',
   },
   notFound: {
     pageTitle: 'No encontrado — Tadoru',
@@ -300,10 +308,12 @@ const ja: Messages = {
     pageTitle: 'サイト — Tadoru',
     heading: 'サイト',
     empty: '設定されているサイトはありません。',
-    snippetIntro: '上のすべてのサイトに、同じスニペットを貼ります。サイトは自分のドメインで識別されるため、差し替えるキーはありません。',
+    snippetIntro: 'すべてのサイトに、同じスニペットを貼ります。サイトはそれぞれ自分のドメインで識別されるため、差し替えるキーはありません。',
     activityNever:
       'まだイベントを受信していません。トラッキングスニペットが設置されているか、ドメインが「www.」を含めて正確に一致しているかを確認してください。',
     activitySummary: (lastSeen, totalEvents) => `最終イベント: ${lastSeen} ・ 合計 ${totalEvents} 件`,
+    copyButton: 'コピー',
+    copiedConfirmation: 'コピーしました',
   },
   notFound: {
     pageTitle: '見つかりません — Tadoru',

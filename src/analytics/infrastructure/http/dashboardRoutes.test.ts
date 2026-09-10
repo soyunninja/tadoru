@@ -15,6 +15,8 @@ import type { Locale } from '../i18n/Locale.ts';
 import { readFileSync } from 'node:fs';
 import { findPackageRoot } from '../packageRoot.ts';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { COPY_BUTTON_SCRIPT_SHA256 } from './views/copyScript.ts';
 
 const RUNNING_VERSION: string = (
   JSON.parse(readFileSync(join(findPackageRoot(import.meta.url) ?? '.', 'package.json'), 'utf8')) as { version: string }
@@ -398,7 +400,7 @@ test('every dashboard response carries the required security headers', async () 
   const response = await fastify.inject({ method: 'GET', url: '/login' });
   assert.equal(
     response.headers['content-security-policy'],
-    "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; form-action 'self'; frame-ancestors 'none'",
+    `default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; script-src 'sha256-${COPY_BUTTON_SCRIPT_SHA256}'; form-action 'self'; frame-ancestors 'none'`,
   );
   assert.equal(response.headers['x-content-type-options'], 'nosniff');
   assert.equal(response.headers['referrer-policy'], 'same-origin');
@@ -539,4 +541,48 @@ test('GET /dashboard says the one snippet is the same for every site', async () 
   const response = await fastify.inject({ method: 'GET', url: '/dashboard', headers: { cookie } });
   assert.equal(response.statusCode, 200);
   assert.match(response.payload, /same snippet|every site/i);
+});
+
+// The CSP's script-src hash and the rendered <script> body are computed from
+// the very same COPY_BUTTON_SCRIPT_SOURCE constant, so they cannot drift
+// apart by construction — but this test proves it end-to-end, from the two
+// actual bytes strings a browser would compare: the header value and the
+// response body.
+test('GET /dashboard sends a script-src sha256 hash that matches the exact inline script bytes in the response body', async () => {
+  const { fastify, passwordUsed } = buildApp();
+  const cookie = await loginAndGetCookie(fastify, passwordUsed);
+  const response = await fastify.inject({ method: 'GET', url: '/dashboard', headers: { cookie } });
+
+  assert.equal(response.statusCode, 200);
+  const csp = String(response.headers['content-security-policy'] ?? '');
+  const headerMatch = csp.match(/script-src 'sha256-([^']+)'/);
+  assert.ok(headerMatch, `expected a script-src sha256 directive in: ${csp}`);
+  const hashFromHeader = headerMatch[1];
+
+  const bodyMatch = response.payload.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(bodyMatch, 'expected an inline <script> tag in the rendered page');
+  const scriptBody = bodyMatch[1] ?? '';
+  const computedHash = createHash('sha256').update(scriptBody).digest('base64');
+
+  assert.equal(computedHash, hashFromHeader, 'the CSP hash must match the exact rendered script bytes');
+  assert.ok(!csp.includes("script-src 'unsafe-inline'"), "script-src must never carry 'unsafe-inline'");
+  assert.ok(!csp.includes("script-src 'self'"), "script-src must never fall back to 'self'");
+});
+
+test('GET /dashboard escapes a hostile Host header instead of rendering it as a live <script> tag', async () => {
+  const { fastify, passwordUsed } = buildApp({ sites: [site('example.com')] });
+  const cookie = await loginAndGetCookie(fastify, passwordUsed);
+  const hostileHost = 'evil"><script>alert(1)</script>';
+
+  const response = await fastify.inject({
+    method: 'GET',
+    url: '/dashboard',
+    headers: { cookie, host: hostileHost },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.ok(!response.payload.includes('<script>alert(1)</script>'));
+  // The hostile host must appear only as escaped entities, never as a literal
+  // opening <script> tag sourced from the Host header.
+  assert.match(response.payload, /evil&quot;&gt;&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
 });
