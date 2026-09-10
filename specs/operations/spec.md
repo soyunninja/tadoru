@@ -68,6 +68,48 @@ read, so it works as a monitoring check rather than only as something to read.
 - **THEN** job state is reported as unavailable
 - Verified by: `src/analytics/cli/status.test.ts`
 
+### Requirement: `status` checks the npm registry for a newer version
+
+`tadoru status` SHALL compare the running version against the latest version published to the npm
+registry. When a newer version is published, it SHALL be reported by name alongside the currently
+running version and the exact upgrade command.
+
+The registry being unreachable, slow, or returning something unexpected SHALL NOT cause `status`
+to fail or to omit anything else it reports. A version that cannot be compared — because either
+side is not a plain `x.y.z` version — SHALL be reported as such rather than guessed at.
+`--no-update-check` SHALL skip the request to the registry entirely.
+
+This check SHALL be made only by the CLI, on a human-run command. The running service itself SHALL
+make no outbound request of any kind — the only network probe anywhere in the codebase is
+`status.ts`'s own `/health` self-probe, and this check joins it there, not the scheduler, the
+dashboard routes, or any other code path that runs without a human typing a command.
+
+#### Scenario: A newer version is reported by name
+- **GIVEN** the npm registry reports a version newer than the one running
+- **THEN** the command reports the newer version, the running version, and the upgrade command
+- Verified by: `src/analytics/cli/status.test.ts`
+
+#### Scenario: Being up to date is reported plainly
+- **GIVEN** the npm registry reports the same version as the one running
+- **THEN** the command reports that it is up to date
+- Verified by: `src/analytics/cli/status.test.ts`
+
+#### Scenario: An unreachable registry does not break the rest of the report
+- **GIVEN** the npm registry does not respond, responds slowly, or returns an unexpected body
+- **THEN** the update check is reported as unavailable, and every other section of the report is
+  still populated, and the command's exit code is unaffected
+- Verified by: `src/analytics/cli/status.test.ts`
+
+#### Scenario: `--no-update-check` skips the request entirely
+- **GIVEN** `--no-update-check` is passed
+- **THEN** no request is made to the npm registry, and the update check is reported as skipped
+- Verified by: `src/analytics/cli/status.test.ts`
+
+#### Scenario: A version that cannot be compared is reported as such, not guessed
+- **GIVEN** the running version or the registry's reported version is not a plain `x.y.z` version
+- **THEN** the command reports that the versions could not be compared, rather than guessing
+- Verified by: `src/analytics/cli/status.test.ts`
+
 ### Requirement: Restoring a backup is one guarded command
 
 `tadoru restore <backup-file>` SHALL replace the live database with `<backup-file>`, in this

@@ -86,15 +86,19 @@ test('parseCli "update-geoip" returns the update-geoip command', () => {
 });
 
 test('parseCli "status" with no flags returns status defaults', () => {
-  assert.deepEqual(parseCli(['status']), { kind: 'status', json: false });
+  assert.deepEqual(parseCli(['status']), { kind: 'status', json: false, checkForUpdates: true });
 });
 
 test('parseCli "status --json"', () => {
-  assert.deepEqual(parseCli(['status', '--json']), { kind: 'status', json: true });
+  assert.deepEqual(parseCli(['status', '--json']), { kind: 'status', json: true, checkForUpdates: true });
 });
 
 test('parseCli "status --help" returns help for status', () => {
   assert.deepEqual(parseCli(['status', '--help']), { kind: 'help', command: 'status' });
+});
+
+test('parseCli "status --no-update-check"', () => {
+  assert.deepEqual(parseCli(['status', '--no-update-check']), { kind: 'status', json: false, checkForUpdates: false });
 });
 
 test('parseCli "restore <file>" with no flags returns restore defaults', () => {

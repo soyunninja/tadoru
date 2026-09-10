@@ -352,7 +352,9 @@ sudo npm update -g tadoru && sudo systemctl restart tadoru
 
 **One command, one answer.** `tadoru status` checks whether a server is answering, opens the
 database read-only to report its size and per-site event counts, and shows each scheduled job's
-health — without you having to chain `systemctl`, `curl` and `sqlite3` by hand. It exits non-zero
+health — without you having to chain `systemctl`, `curl` and `sqlite3` by hand. It also contacts
+the npm registry to check whether a newer version has been published, and if so reports it by name
+alongside the upgrade command; `--no-update-check` skips that request entirely. It exits non-zero
 if the server isn't answering or the database can't be read, so it doubles as a monitoring check.
 Add `--json` for scripting:
 

@@ -12,7 +12,12 @@ import type { PromptPort } from '../src/analytics/cli/init.ts';
 import { readSystemdTemplate, runInstallService, ENV_FILE_PATH } from '../src/analytics/cli/installService.ts';
 import { runBackup } from '../src/analytics/cli/backup.ts';
 import { runUpdateGeoip } from '../src/analytics/cli/updateGeoip.ts';
-import { runStatusCommand, inspectDatabaseReadOnly, fetchProbeHealth } from '../src/analytics/cli/status.ts';
+import {
+  runStatusCommand,
+  inspectDatabaseReadOnly,
+  fetchProbeHealth,
+  fetchLatestPublishedVersion,
+} from '../src/analytics/cli/status.ts';
 import { runRestoreCommand, verifyTadoruDatabaseFile } from '../src/analytics/cli/restore.ts';
 import { runResetPassword } from '../src/analytics/cli/resetPassword.ts';
 import { loadConfig } from '../src/analytics/infrastructure/config/loadConfig.ts';
@@ -38,7 +43,7 @@ export type ParsedCommand =
     }
   | { readonly kind: 'backup' }
   | { readonly kind: 'update-geoip' }
-  | { readonly kind: 'status'; readonly json: boolean }
+  | { readonly kind: 'status'; readonly json: boolean; readonly checkForUpdates: boolean }
   | {
       readonly kind: 'restore';
       readonly backupFilePath: string | undefined;
@@ -127,12 +132,12 @@ export function parseCli(argv: readonly string[]): ParsedCommand {
     case 'status': {
       const { values } = parseArgs({
         args: rest,
-        options: { json: { type: 'boolean' }, help: { type: 'boolean' } },
+        options: { json: { type: 'boolean' }, 'no-update-check': { type: 'boolean' }, help: { type: 'boolean' } },
         strict: false,
         allowPositionals: true,
       });
       if (values['help'] === true) return { kind: 'help', command: 'status' };
-      return { kind: 'status', json: values['json'] === true };
+      return { kind: 'status', json: values['json'] === true, checkForUpdates: values['no-update-check'] !== true };
     }
     case 'restore': {
       const { values, positionals } = parseArgs({
@@ -180,7 +185,7 @@ function printUsage(command?: string): void {
         '  restore           Replace the live database with a backup, safely',
         '  reset-password    Generate a new admin password (root only)',
         '  update-geoip      Refresh the local GeoIP database',
-        '  status            Report whether the server is running and the database is healthy',
+        '  status            Report whether the server is running and the database is healthy, and check for updates',
         '',
         'Options:',
         '  -h, --help        Show this help',
@@ -226,10 +231,11 @@ function printUsage(command?: string): void {
       'root or if the env file is missing.',
     'update-geoip': 'tadoru update-geoip\n\nRefreshes the local GeoIP database. Requires network access.',
     status:
-      'tadoru status [--json]\n\n' +
+      'tadoru status [--json] [--no-update-check]\n\n' +
       'Reports whether a server is answering /health, whether the database opens and what it holds, ' +
       'per-site event counts, retention, and scheduled job health. Exits 0 only when a server answered ' +
-      'and the database opened successfully, so it doubles as a monitoring check.',
+      'and the database opened successfully, so it doubles as a monitoring check.\n\n' +
+      '--no-update-check   Skip the request to the npm registry that checks for a newer published version.',
   };
   console.log(perCommand[command] ?? `Unknown command: ${command}`);
 }
@@ -314,12 +320,13 @@ async function runUpdateGeoipCommand(): Promise<number> {
 
 async function runStatusCliCommand(parsed: Extract<ParsedCommand, { kind: 'status' }>): Promise<number> {
   return runStatusCommand(
-    { json: parsed.json },
+    { json: parsed.json, checkForUpdates: parsed.checkForUpdates },
     {
       loadConfig,
       resolveVersion: currentPackageVersion,
       inspectDatabase: inspectDatabaseReadOnly,
       probeHealth: fetchProbeHealth,
+      fetchLatestVersion: fetchLatestPublishedVersion,
       now: () => Date.now(),
       log: (message) => console.log(message),
     },

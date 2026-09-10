@@ -15,7 +15,11 @@ import { createSiteId } from '../domain/event/SiteId.ts';
 import type { SiteId } from '../domain/event/SiteId.ts';
 import {
   runStatusCommand,
+  buildStatusReport,
   asHealthBody,
+  asLatestVersionInfo,
+  compareVersions,
+  fetchLatestPublishedVersion,
   inspectDatabaseReadOnly,
   probeableHost,
   DATABASE_FILE_NAME,
@@ -72,6 +76,7 @@ function buildPorts(overrides: Partial<StatusPorts> = {}): StatusPorts {
         sites: [{ domain: 'example.com', eventCount: 10, lastEventAt: 1_700_001_000 }],
       }),
     probeHealth: async () => undefined,
+    fetchLatestVersion: async () => undefined,
     now: () => 1_700_002_000_000,
     log: () => {},
     ...overrides,
@@ -359,4 +364,166 @@ test('a truncated health body is rejected rather than half-trusted', () => {
 test('our own health body is accepted', () => {
   const body = { status: 'ok', database: { reachable: true }, jobs: {} };
   assert.deepEqual(asHealthBody(body), body);
+});
+
+// ---------------------------------------------------------------------------
+// Update check
+// ---------------------------------------------------------------------------
+
+test('asLatestVersionInfo rejects foreign or wrong-shaped JSON', () => {
+  assert.equal(asLatestVersionInfo({}), undefined);
+  assert.equal(asLatestVersionInfo({ version: 42 }), undefined);
+  assert.equal(asLatestVersionInfo(null), undefined);
+  assert.equal(asLatestVersionInfo('a string'), undefined);
+  assert.equal(asLatestVersionInfo(['1.2.3']), undefined);
+});
+
+test('asLatestVersionInfo accepts a valid registry body', () => {
+  assert.equal(asLatestVersionInfo({ version: '1.2.3' }), '1.2.3');
+});
+
+test('compareVersions reports equal versions as up to date', () => {
+  assert.equal(compareVersions('1.2.3', '1.2.3'), 'up-to-date');
+});
+
+test('compareVersions reports a greater patch, minor or major as an update', () => {
+  assert.equal(compareVersions('1.2.3', '1.2.4'), 'update-available');
+  assert.equal(compareVersions('1.2.3', '1.3.0'), 'update-available');
+  assert.equal(compareVersions('1.2.3', '2.0.0'), 'update-available');
+});
+
+test('compareVersions reports a lesser latest version as up to date, not a downgrade', () => {
+  assert.equal(compareVersions('1.2.3', '1.2.2'), 'up-to-date');
+  assert.equal(compareVersions('2.0.0', '1.9.9'), 'up-to-date');
+});
+
+test('compareVersions refuses to guess when either side is not a plain x.y.z version', () => {
+  assert.equal(compareVersions('1.2.3-rc.1', '1.2.4'), 'not-comparable');
+  assert.equal(compareVersions('1.2.3', '1.2.4-rc.1'), 'not-comparable');
+  assert.equal(compareVersions('v1.2.3', '1.2.4'), 'not-comparable');
+  assert.equal(compareVersions('1.2', '1.2.4'), 'not-comparable');
+  assert.equal(compareVersions('1.2.3.4', '1.2.4'), 'not-comparable');
+  assert.equal(compareVersions('abc', '1.2.4'), 'not-comparable');
+  assert.equal(compareVersions('', '1.2.4'), 'not-comparable');
+});
+
+test('fetchLatestPublishedVersion resolves undefined when the registry is unreachable', async () => {
+  const fetchImpl = (() => Promise.reject(new Error('connection refused'))) as typeof fetch;
+  const result = await fetchLatestPublishedVersion(fetchImpl, 1500);
+  assert.equal(result, undefined);
+});
+
+test('fetchLatestPublishedVersion resolves undefined when the request times out', async () => {
+  const fetchImpl = ((_url: string, init?: { signal?: AbortSignal }) =>
+    new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+    })) as typeof fetch;
+  const result = await fetchLatestPublishedVersion(fetchImpl, 20);
+  assert.equal(result, undefined);
+});
+
+test('fetchLatestPublishedVersion resolves undefined on a rate-limited or unexpected body', async () => {
+  const fetchImpl = (() => Promise.resolve({ json: async () => ({ error: 'Too Many Requests' }) } as Response)) as typeof fetch;
+  const result = await fetchLatestPublishedVersion(fetchImpl, 1500);
+  assert.equal(result, undefined);
+});
+
+test('fetchLatestPublishedVersion resolves undefined on malformed JSON', async () => {
+  const fetchImpl = (() =>
+    Promise.resolve({
+      json: async () => {
+        throw new Error('Unexpected token');
+      },
+    } as unknown as Response)) as typeof fetch;
+  const result = await fetchLatestPublishedVersion(fetchImpl, 1500);
+  assert.equal(result, undefined);
+});
+
+test('fetchLatestPublishedVersion resolves the version string on success', async () => {
+  const fetchImpl = (() => Promise.resolve({ json: async () => ({ version: '1.2.3' }) } as Response)) as typeof fetch;
+  const result = await fetchLatestPublishedVersion(fetchImpl, 1500);
+  assert.equal(result, '1.2.3');
+});
+
+test('checkForUpdates: false disables the update check and never calls the port', async () => {
+  const ports = buildPorts({
+    fetchLatestVersion: () => {
+      throw new Error('must not be called when the update check is disabled');
+    },
+  });
+  const loaded = ports.loadConfig();
+  if (!loaded.ok) throw new Error('unexpected loadConfig failure');
+
+  const report = await buildStatusReport(loaded.value.config, ports, false);
+  assert.deepEqual(report.updateCheck, { status: 'disabled' });
+});
+
+test('an unreachable registry is reported as unavailable without breaking the rest of the report', async () => {
+  const ports = buildPorts();
+  const loaded = ports.loadConfig();
+  if (!loaded.ok) throw new Error('unexpected loadConfig failure');
+  const report = await buildStatusReport(loaded.value.config, ports, true);
+
+  assert.deepEqual(report.updateCheck, { status: 'unavailable', reason: 'could not reach the npm registry' });
+  assert.equal(report.database.ok, true);
+  assert.ok(Array.isArray(report.sites));
+});
+
+test('the same version as the one running is reported up to date', async () => {
+  const ports = buildPorts({ fetchLatestVersion: async () => '9.9.9' });
+  const loaded = ports.loadConfig();
+  if (!loaded.ok) throw new Error('unexpected loadConfig failure');
+  const report = await buildStatusReport(loaded.value.config, ports, true);
+
+  assert.deepEqual(report.updateCheck, { status: 'up-to-date', currentVersion: '9.9.9', latestVersion: '9.9.9' });
+});
+
+test('a newer published version is reported as an update available', async () => {
+  const ports = buildPorts({ fetchLatestVersion: async () => '10.0.0' });
+  const loaded = ports.loadConfig();
+  if (!loaded.ok) throw new Error('unexpected loadConfig failure');
+  const report = await buildStatusReport(loaded.value.config, ports, true);
+
+  assert.deepEqual(report.updateCheck, { status: 'update-available', currentVersion: '9.9.9', latestVersion: '10.0.0' });
+});
+
+test('a non-plain published version is reported as not comparable, never guessed', async () => {
+  const ports = buildPorts({ fetchLatestVersion: async () => '10.0.0-rc.1' });
+  const loaded = ports.loadConfig();
+  if (!loaded.ok) throw new Error('unexpected loadConfig failure');
+  const report = await buildStatusReport(loaded.value.config, ports, true);
+
+  assert.deepEqual(report.updateCheck, {
+    status: 'not-comparable',
+    currentVersion: '9.9.9',
+    latestVersion: '10.0.0-rc.1',
+  });
+});
+
+test('the text report names both versions and the upgrade command when an update is available', async () => {
+  const logs: string[] = [];
+  const ports = buildPorts({
+    fetchLatestVersion: async () => '10.0.0',
+    probeHealth: async (_host, port) => (port === 3000 ? healthyBody() : undefined),
+    log: (message) => logs.push(message),
+  });
+
+  await runStatusCommand({ json: false }, ports);
+
+  const text = logs[0] as string;
+  assert.match(text, /A newer version is available: v10\.0\.0 \(running v9\.9\.9\)\./);
+  assert.match(text, /sudo npm update -g tadoru && sudo systemctl restart tadoru/);
+});
+
+test('the text report includes the reason when the registry is unreachable', async () => {
+  const logs: string[] = [];
+  const ports = buildPorts({
+    probeHealth: async (_host, port) => (port === 3000 ? healthyBody() : undefined),
+    log: (message) => logs.push(message),
+  });
+
+  await runStatusCommand({ json: false }, ports);
+
+  const text = logs[0] as string;
+  assert.match(text, /Update check: could not check \(could not reach the npm registry\)/);
 });

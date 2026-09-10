@@ -12,6 +12,12 @@ import type { SiteId } from '../domain/event/SiteId.ts';
 export const DATABASE_FILE_NAME = 'tadoru.db';
 /** Kept short: `status` is a monitoring check, so a dead server should be reported in well under a second, not hung on. */
 const PROBE_TIMEOUT_MS = 1500;
+/**
+ * Consulted only by `tadoru status`, run by a human on their own machine — the
+ * running service itself makes no outbound request. See
+ * `specs/operations/spec.md` for the invariant this upholds.
+ */
+const NPM_REGISTRY_LATEST_VERSION_URL = 'https://registry.npmjs.org/tadoru/latest';
 
 // ---------------------------------------------------------------------------
 // Ports
@@ -53,11 +59,15 @@ export interface HealthBody {
 /** Probes one host/port pair's `/health` endpoint, returning the parsed body or `undefined` if nothing answered (connection refused, timeout — never a thrown error). */
 export type ProbeHealthPort = (host: string, port: number) => Promise<HealthBody | undefined>;
 
+/** Fetches the latest published version string from the npm registry, or `undefined` if it could not be determined (unreachable, slow, or an unexpected body — never a thrown error). */
+export type FetchLatestVersionPort = () => Promise<string | undefined>;
+
 export interface StatusPorts {
   readonly loadConfig: (options?: LoadConfigOptions) => Result<LoadedConfig, string>;
   readonly resolveVersion: () => string;
   readonly inspectDatabase: InspectDatabasePort;
   readonly probeHealth: ProbeHealthPort;
+  readonly fetchLatestVersion: FetchLatestVersionPort;
   readonly now: () => number;
   readonly log: (message: string) => void;
 }
@@ -160,6 +170,69 @@ export async function fetchProbeHealth(host: string, port: number): Promise<Heal
   }
 }
 
+/**
+ * Narrows an arbitrary JSON body from the npm registry to the one field we
+ * need, or `undefined`. Same defensive pattern as `asHealthBody`: a 200 with
+ * valid JSON is not proof it carries a `version` field (rate limiting and
+ * registry error bodies both return JSON), and casting blind would turn a
+ * flaky registry into a crash in a command meant to be a safe monitoring check.
+ */
+export function asLatestVersionInfo(body: unknown): string | undefined {
+  if (typeof body !== 'object' || body === null) return undefined;
+  const version = (body as { version?: unknown }).version;
+  return typeof version === 'string' ? version : undefined;
+}
+
+/**
+ * Compares two version strings, accepting only plain `x.y.z` (three
+ * non-negative integers). Anything else — a prerelease tag, a `v` prefix, a
+ * missing or extra segment, a non-numeric part — on either side is
+ * `'not-comparable'`: guessing at an update that may not exist is worse than
+ * saying nothing.
+ */
+export function compareVersions(current: string, latest: string): 'up-to-date' | 'update-available' | 'not-comparable' {
+  const currentParts = parsePlainVersion(current);
+  const latestParts = parsePlainVersion(latest);
+  if (currentParts === undefined || latestParts === undefined) return 'not-comparable';
+
+  for (let i = 0; i < 3; i++) {
+    const latestPart = latestParts[i] as number;
+    const currentPart = currentParts[i] as number;
+    if (latestPart > currentPart) return 'update-available';
+    if (latestPart < currentPart) return 'up-to-date';
+  }
+  return 'up-to-date';
+}
+
+function parsePlainVersion(version: string): readonly [number, number, number] | undefined {
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  if (match === null) return undefined;
+  return [Number(match[1]), Number(match[2]), Number(match[3])];
+}
+
+/**
+ * Real, `fetch`-based lookup of the latest published version from the npm
+ * registry, with the same short-timeout shape as `fetchProbeHealth`. Called
+ * only by `tadoru status`, a human-run CLI command — the running service
+ * itself makes no outbound request. `fetchImpl` and `timeoutMs` are
+ * injectable seams so tests can exercise failure shapes without monkeypatching
+ * `globalThis.fetch` or waiting out a real timeout.
+ */
+export async function fetchLatestPublishedVersion(
+  fetchImpl: typeof fetch = fetch,
+  timeoutMs: number = PROBE_TIMEOUT_MS,
+): Promise<string | undefined> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(NPM_REGISTRY_LATEST_VERSION_URL, { signal: controller.signal });
+    return asLatestVersionInfo(await response.json());
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Report shape
@@ -184,6 +257,16 @@ export type DatabaseReport =
     }
   | { readonly ok: false; readonly error: string };
 
+/** Whether a newer version has been published to the npm registry, as reported by `tadoru status`. */
+export type UpdateCheckReport =
+  | { readonly status: 'disabled' }
+  | { readonly status: 'unavailable'; readonly reason: string }
+  | {
+      readonly status: 'up-to-date' | 'update-available' | 'not-comparable';
+      readonly currentVersion: string;
+      readonly latestVersion: string;
+    };
+
 export interface StatusReport {
   readonly version: string;
   readonly dataDir: string;
@@ -193,6 +276,7 @@ export interface StatusReport {
   readonly retention: { readonly months: number; readonly exceedsExemptionWindow: boolean };
   /** `undefined` when no server answered — job state must never be fabricated in that case. */
   readonly jobs: readonly StatusReportJob[] | undefined;
+  readonly updateCheck: UpdateCheckReport;
 }
 
 function jobsFromHealthBody(body: HealthBody): readonly StatusReportJob[] {
@@ -207,11 +291,32 @@ function jobsFromHealthBody(body: HealthBody): readonly StatusReportJob[] {
 }
 
 /**
+ * Resolves the update-check section of the report. Never throws: the port
+ * contract guarantees `fetchLatestVersion` resolves rather than rejects, and
+ * an unreachable or unexpected registry response is reported as a fact, not
+ * an exception — the update check must never be able to break `status`.
+ */
+async function resolveUpdateCheck(
+  currentVersion: string,
+  checkForUpdates: boolean,
+  fetchLatestVersion: FetchLatestVersionPort,
+): Promise<UpdateCheckReport> {
+  if (!checkForUpdates) return { status: 'disabled' };
+  const latestVersion = await fetchLatestVersion();
+  if (latestVersion === undefined) return { status: 'unavailable', reason: 'could not reach the npm registry' };
+  return { status: compareVersions(currentVersion, latestVersion), currentVersion, latestVersion };
+}
+
+/**
  * Builds the full status report by consulting every port. Never throws: a
  * failing database inspection or an unanswering server are reported as
  * facts inside the returned report, not as exceptions.
  */
-export async function buildStatusReport(config: LoadedConfig['config'], ports: StatusPorts): Promise<StatusReport> {
+export async function buildStatusReport(
+  config: LoadedConfig['config'],
+  ports: StatusPorts,
+  checkForUpdates: boolean = true,
+): Promise<StatusReport> {
   const version = ports.resolveVersion();
   const probeHost = probeableHost(config.host);
 
@@ -238,6 +343,8 @@ export async function buildStatusReport(config: LoadedConfig['config'], ports: S
       }
     : { ok: false, error: inspection.error };
 
+  const updateCheck = await resolveUpdateCheck(version, checkForUpdates, ports.fetchLatestVersion);
+
   return {
     version,
     dataDir: config.dataDir,
@@ -249,6 +356,7 @@ export async function buildStatusReport(config: LoadedConfig['config'], ports: S
       exceedsExemptionWindow: config.retention.rawEventMonths > RETENTION_WARNING_THRESHOLD_MONTHS,
     },
     jobs: healthBody !== undefined ? jobsFromHealthBody(healthBody) : undefined,
+    updateCheck,
   };
 }
 
@@ -269,6 +377,31 @@ function renderTextReport(report: StatusReport): string {
 
   lines.push(`Tadoru v${report.version}`);
   lines.push(`Data directory: ${report.dataDir}`);
+  lines.push('');
+
+  switch (report.updateCheck.status) {
+    case 'disabled':
+      lines.push('Update check: skipped (--no-update-check)');
+      break;
+    case 'unavailable':
+      lines.push(`Update check: could not check (${report.updateCheck.reason})`);
+      break;
+    case 'up-to-date':
+      lines.push(`Tadoru is up to date (v${report.updateCheck.currentVersion}).`);
+      break;
+    case 'update-available':
+      lines.push(
+        `A newer version is available: v${report.updateCheck.latestVersion} (running v${report.updateCheck.currentVersion}).`,
+      );
+      lines.push('Upgrade with: sudo npm update -g tadoru && sudo systemctl restart tadoru');
+      break;
+    case 'not-comparable':
+      lines.push(
+        `Update check: could not compare versions (running v${report.updateCheck.currentVersion}, registry reports ` +
+          `v${report.updateCheck.latestVersion}).`,
+      );
+      break;
+  }
   lines.push('');
 
   lines.push(
@@ -338,6 +471,8 @@ function renderTextReport(report: StatusReport): string {
 export interface RunStatusCommandOptions {
   readonly json: boolean;
   readonly loadConfigOptions?: LoadConfigOptions;
+  /** Whether to check the npm registry for a newer published version. Defaults to `true`. */
+  readonly checkForUpdates?: boolean;
 }
 
 /**
@@ -358,7 +493,7 @@ export async function runStatusCommand(options: RunStatusCommandOptions, ports: 
     return 1;
   }
 
-  const report = await buildStatusReport(loaded.value.config, ports);
+  const report = await buildStatusReport(loaded.value.config, ports, options.checkForUpdates ?? true);
 
   ports.log(options.json ? JSON.stringify(report) : renderTextReport(report));
 
