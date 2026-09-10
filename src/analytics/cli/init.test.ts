@@ -193,3 +193,33 @@ test('runInit overwrites an existing config when --force is passed', async () =>
     assert.deepEqual(parsedConfig.sites, ['new.example']);
   });
 });
+
+// A person following a server walkthrough can reasonably reach for `init`
+// first. Nothing it writes is read by the systemd service — that is configured
+// entirely from /etc/tadoru/tadoru.env, which `install-service` creates with a
+// password of its own. Without this warning the operator carefully stores a
+// credential that opens nothing.
+test('runInit says its output is not what the systemd service reads, and points at install-service', async () => {
+  await withTempDir(async (dir) => {
+    const logs: string[] = [];
+    const result = await runInit({
+      configPath: join(dir, 'tadoru.config.json'),
+      envPath: join(dir, 'tadoru.env'),
+      force: false,
+      isInteractive: false,
+      flags: { domains: 'example.com' },
+      randomBytes: (size) => Buffer.alloc(size, 1),
+      log: (msg) => logs.push(msg),
+    });
+
+    assert.equal(result.ok, true);
+    const output = logs.join('\n');
+    assert.match(output, /install-service/);
+    assert.match(output, /systemd/i);
+    // The warning has to reach the reader before the password it undercuts.
+    assert.ok(
+      output.indexOf('install-service') < output.indexOf('Generated admin password'),
+      'the warning must come before the generated password, not after it',
+    );
+  });
+});

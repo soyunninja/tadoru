@@ -156,6 +156,17 @@ export async function runInit(options: RunInitOptions): Promise<Result<void, str
   options.log(`Wrote ${options.configPath}`);
   options.log(`Wrote ${options.envPath} (mode 0600)`);
   options.log('');
+  // Said before the password, not after: someone installing on a server will
+  // otherwise store this credential carefully and find it opens nothing. The
+  // systemd unit reads /etc/tadoru/tadoru.env, which `install-service` writes
+  // with a password of its own, and an environment file wins over this config
+  // file at load time — so nothing written above reaches the service.
+  options.log('These two files are for running "tadoru start" yourself from this directory.');
+  options.log('They are NOT what a systemd service reads: that is configured entirely by');
+  options.log('"sudo tadoru install-service --sites your-domain.com", which writes');
+  options.log('/etc/tadoru/tadoru.env and prints its own admin password. If a server is where');
+  options.log('this is going, run that instead — you do not need this file or this password.');
+  options.log('');
   options.log(`Generated admin password: ${password}`);
   options.log('This password will not be shown again — store it somewhere safe now.');
 
