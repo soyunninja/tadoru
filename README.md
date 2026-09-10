@@ -184,33 +184,62 @@ An A record is simply the line that tells the internet "this name lives at this 
 adding it, `stats.yoursite.com` points at your server. It usually works within minutes, though it
 can take longer.
 
-### 6. Put HTTPS in front
+### 6. Give it a way in from the internet
 
-Right now Tadoru only listens on the server's own internal address, so nothing outside can reach
-it. That is deliberate: it should not face the internet directly. You put a **reverse proxy** in
-front — a small program that receives visitors, handles the HTTPS padlock, and passes requests
-inward.
+Tadoru listens only on the server's own internal address — `127.0.0.1:3000` — so nothing outside
+can reach it yet. That is deliberate: it should never face the internet directly.
 
-[Caddy](https://caddyserver.com) does this and obtains the certificate for you:
+What sits in front is your choice, and this guide is not going to pick for you. nginx, Caddy,
+Apache, Traefik, HAProxy, a load balancer your host provides — any of them works, and on a server
+you already use, one of them is probably running and holding ports 80 and 443 already. Installing a
+second one will simply fail to start.
 
-```bash
-sudo apt install -y caddy
+So instead of a recipe, here is the contract. Point a subdomain at your server, terminate HTTPS
+there, and forward to `127.0.0.1:3000` passing **four** things:
+
+| What to pass | Why it matters if you do not |
+|---|---|
+| The request itself, to `127.0.0.1:3000` | Nothing works at all. |
+| `Host`: the public hostname | The dashboard builds its ready-to-paste snippet from this. Get it wrong and it hands you a snippet pointing at `127.0.0.1`. |
+| `X-Forwarded-Proto: https` | The admin session cookie loses its `Secure` flag, so it can travel over plain HTTP. |
+| `X-Forwarded-For`: the real client IP | Every visitor resolves to your server's own country, and the country breakdown becomes meaningless. |
+
+**One detail worth getting right, because most tutorials get it wrong.** Tadoru reads the *first*
+entry of `X-Forwarded-For`. Your proxy must **replace** that header with the connecting IP, not
+append to it. If it appends — nginx's widely copied `$proxy_add_x_forwarded_for` does exactly this
+— then a visitor who sends their own `X-Forwarded-For` ends up first in the list, and can choose
+which country they appear from. Since your proxy is the one facing the internet, the IP it sees is
+the true one; replace with that.
+
+Two examples, not recommendations. nginx:
+
+```nginx
+server {
+    listen 80;
+    server_name stats.yoursite.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Forwarded-For   $remote_addr;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
 ```
 
-Then replace its configuration:
+Then add HTTPS however you normally do — `certbot --nginx -d stats.yoursite.com` is the usual way.
 
-```bash
-sudo tee /etc/caddy/Caddyfile > /dev/null <<'EOF'
+Caddy, which sets all three headers itself and obtains the certificate unprompted:
+
+```
 stats.yoursite.com {
 	reverse_proxy 127.0.0.1:3000
 }
-EOF
-
-sudo systemctl reload caddy
 ```
 
-Use your real subdomain in place of `stats.yoursite.com`. Caddy gets a certificate automatically the
-first time someone visits, which takes a few seconds.
+`TADORU_TRUSTED_PROXY=true` is already set in `/etc/tadoru/tadoru.env`, which is what allows those
+forwarded headers to be believed. Leave it on only while something really is in front: with nothing
+there, anyone could send the headers themselves.
 
 Now open `https://stats.yoursite.com` in a browser. You should see the login page. Enter the
 password from step 3.
@@ -265,9 +294,14 @@ dig +short stats.yoursite.com
 
 It should print your server's IP. If it prints nothing, wait and try again.
 
-**HTTPS shows a certificate warning.** Caddy could not get a certificate — almost always because the
-DNS record is not pointing at this server yet, or because ports 80 and 443 are blocked by a
-firewall. `sudo journalctl -u caddy -n 30` says which.
+**HTTPS shows a certificate warning.** Whatever issues your certificate could not get one — almost
+always because the DNS record is not pointing at this server yet, or because ports 80 and 443 are
+blocked by a firewall. Your proxy's own log says which: `sudo journalctl -u nginx -n 30`, or
+`caddy`, or whatever you are running.
+
+**Your proxy refuses to start with `address already in use`.** Something else already holds port 80
+or 443 — on a server you already use, that is normal. Find it with `sudo ss -tlnp | grep -E ':80|:443'`
+and add Tadoru to that server rather than installing a second one.
 
 **You lost the admin password.** `/etc/tadoru/tadoru.env` stores only a scrypt hash and its salt
 (`TADORU_ADMIN_PASSWORD_HASH` / `TADORU_ADMIN_PASSWORD_SALT`), never the plaintext. A hash cannot
@@ -427,4 +461,3 @@ That is the whole intent: improvements to a privacy tool should stay available t
 privacy it protects. See [`docs/adr/0006-agpl-and-the-network-clause.md`](docs/adr/0006-agpl-and-the-network-clause.md).
 
 [edpb]: https://www.edpb.europa.eu/system/files/2024-10/edpb_guidelines_202302_technical_scope_art_53_eprivacydirective_v2_en_0.pdf
-[caddy]: https://caddyserver.com
