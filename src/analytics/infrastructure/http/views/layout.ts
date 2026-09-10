@@ -28,6 +28,12 @@ export interface LayoutOptions {
   readonly repositoryUrl?: string;
   /** Defaults to English. Drives `<html lang>` and the footer copy. */
   readonly locale?: Locale;
+  /**
+   * Optional control rendered at the far right of the header, opposite the
+   * wordmark. The authenticated pages put log out here; the login page passes
+   * nothing, because there is no session to end.
+   */
+  readonly headerAction?: SafeHtml;
 }
 
 // Dense, dark, numbers-reading styling. No JS at all: the CSP forbids scripts
@@ -120,6 +126,12 @@ const STYLE = `
     font-size: 0.95rem;
     font-weight: 600;
     letter-spacing: -0.01em;
+    /* Wordmark left, header action right. With no action the wordmark sits
+       exactly where it always did, so the login page is unaffected. */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
   }
   .brand a {
     color: var(--fg);
@@ -345,7 +357,7 @@ export function renderLayout(options: LayoutOptions): SafeHtml {
 <style>${raw(STYLE)}</style>
 </head>
 <body>
-<header class="brand"><a href="/dashboard">tadoru<span class="brand-jp" lang="ja">たどる</span></a></header>
+<header class="brand"><a href="/dashboard">tadoru<span class="brand-jp" lang="ja">たどる</span></a>${options.headerAction ?? raw('')}</header>
 <main>${options.body}</main>
 <footer>
 <p>${messages.footer.prefix} <a href="${repositoryUrl}">${messages.footer.linkText}</a> ${messages.footer.version(options.version)}.</p>

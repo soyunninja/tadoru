@@ -98,12 +98,12 @@ ${renderBreakdownTable(messages.breakdown.titles.colorScheme, 'colorScheme', bre
 <p class="muted">${messages.overview.ingestDelay}</p>`;
 
   const body = html`${header}
-${content}
-<p>${renderLogoutForm(locale)}</p>`;
+${content}`;
 
   return renderLayout({
     title: messages.overview.pageTitle(site),
     body,
+    headerAction: renderLogoutForm(locale),
     version: options.version,
     locale,
     ...(options.repositoryUrl !== undefined ? { repositoryUrl: options.repositoryUrl } : {}),

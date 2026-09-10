@@ -586,3 +586,50 @@ test('GET /dashboard escapes a hostile Host header instead of rendering it as a 
   // opening <script> tag sourced from the Host header.
   assert.match(response.payload, /evil&quot;&gt;&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
 });
+
+// Log out belongs with the identity it ends, top right beside the wordmark —
+// not at the far bottom of a long dashboard, where reaching it means scrolling
+// past every breakdown table first.
+test('GET /dashboard puts the log-out control in the header, and only once', async () => {
+  const { fastify, passwordUsed } = buildApp({ sites: [site('one.example')] });
+  const cookie = await loginAndGetCookie(fastify, passwordUsed);
+  const response = await fastify.inject({ method: 'GET', url: '/dashboard', headers: { cookie } });
+
+  assert.equal(response.statusCode, 200);
+  const logoutForms = response.payload.split('action="/logout"').length - 1;
+  assert.equal(logoutForms, 1, `expected one log-out form, found ${logoutForms}`);
+
+  const header = response.payload.slice(
+    response.payload.indexOf('<header'),
+    response.payload.indexOf('</header>'),
+  );
+  assert.match(header, /action="\/logout"/, 'the log-out form must live inside the header');
+});
+
+test('GET /dashboard/:site puts the log-out control in the header, and only once', async () => {
+  const measured = site('one.example');
+  const { fastify, passwordUsed } = buildApp({ sites: [measured] });
+  const cookie = await loginAndGetCookie(fastify, passwordUsed);
+  const response = await fastify.inject({
+    method: 'GET',
+    url: `/dashboard/${measured}`,
+    headers: { cookie },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const logoutForms = response.payload.split('action="/logout"').length - 1;
+  assert.equal(logoutForms, 1, `expected one log-out form, found ${logoutForms}`);
+
+  const header = response.payload.slice(
+    response.payload.indexOf('<header'),
+    response.payload.indexOf('</header>'),
+  );
+  assert.match(header, /action="\/logout"/, 'the log-out form must live inside the header');
+});
+
+test('GET /login offers no log-out control: there is no session to end', async () => {
+  const { fastify } = buildApp({ sites: [site('one.example')] });
+  const response = await fastify.inject({ method: 'GET', url: '/login' });
+  assert.equal(response.statusCode, 200);
+  assert.doesNotMatch(response.payload, /action="\/logout"/);
+});

@@ -264,12 +264,12 @@ function renderSitesPage(options: {
 </div>`;
 
   const body = html`<h1>${messages.sites.heading}</h1>
-${listOrEmpty}
-<p>${renderLogoutForm(options.locale)}</p>`;
+${listOrEmpty}`;
 
   return renderLayout({
     title: messages.sites.pageTitle,
     body,
+    headerAction: renderLogoutForm(options.locale),
     version: PACKAGE_METADATA.version,
     repositoryUrl: PACKAGE_METADATA.repositoryUrl,
     locale: options.locale,
