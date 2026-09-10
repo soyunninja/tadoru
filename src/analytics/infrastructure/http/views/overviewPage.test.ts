@@ -139,6 +139,42 @@ test('renderOverviewPage renders the screen, language and colour scheme breakdow
   assert.ok(languageAt < colorSchemeAt, 'colour scheme should come after language');
 });
 
+test('renderOverviewPage renders the scroll-depth section after the colour-scheme breakdown', () => {
+  const page = renderOverviewPage(
+    baseOptions({
+      totals: { pageviews: 4, visitors: 2, sessions: 2, bounces: 1, engagementSeconds: 60 },
+      breakdowns: { ...emptyBreakdowns, colorScheme: [row('dark', 2)] },
+      scrollDepth: [{ path: '/article', averageDepth: 75, sessionsWithData: 3, totalSessions: 400 }],
+    }),
+  ).toString();
+
+  assert.match(page, /Scroll depth/);
+  assert.match(page, /\/article/);
+  assert.match(page, /75%/);
+  assert.match(page, /3 of 400 sessions/);
+
+  const colorSchemeAt = page.indexOf('Colour scheme');
+  const scrollDepthAt = page.indexOf('Scroll depth');
+  assert.ok(colorSchemeAt !== -1 && scrollDepthAt !== -1);
+  assert.ok(colorSchemeAt < scrollDepthAt, 'scroll depth should come after every other breakdown');
+});
+
+test('renderOverviewPage says so plainly when there is no scroll data, instead of an empty table or a 0%', () => {
+  const page = renderOverviewPage(
+    baseOptions({
+      totals: { pageviews: 4, visitors: 2, sessions: 2, bounces: 1, engagementSeconds: 60 },
+      breakdowns: { ...emptyBreakdowns, colorScheme: [row('dark', 2)] },
+      scrollDepth: [],
+    }),
+  ).toString();
+
+  assert.match(page, /No scroll data for this range\./);
+  // Must render the section's own empty state, not a <table> with a
+  // misleading 0% row.
+  const scrollSection = page.slice(page.indexOf('Scroll depth'));
+  assert.ok(!scrollSection.includes('<table'));
+});
+
 test('renderOverviewPage treats the screen/language/colour-scheme breakdowns as data for the empty-state check', () => {
   const page = renderOverviewPage(
     baseOptions({ breakdowns: { ...emptyBreakdowns, colorScheme: [row('light', 1)] } }),

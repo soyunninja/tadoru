@@ -209,6 +209,69 @@ export function renderBreakdownTable(
 </section>`;
 }
 
+/**
+ * One path's row for the scroll-depth section. `sessionsWithData` and
+ * `totalSessions` are shown together (never `averageDepth` alone): a page
+ * shorter than the viewport, or left before any scroll, emits no scroll
+ * event at all (see tracker/tracker.ts's `if (scrollable <= 0) return`), so
+ * the rows this section has are a self-selected subset and the coverage
+ * numbers say how big a subset.
+ */
+export interface ScrollDepthRow {
+  readonly path: string;
+  /** 0-100. */
+  readonly averageDepth: number;
+  readonly sessionsWithData: number;
+  readonly totalSessions: number;
+}
+
+/**
+ * The scroll-depth-per-page section, styled like `renderBreakdownTable` (same
+ * card/table/bar visual language) but not built from a `BreakdownDimension`:
+ * scroll depth is not a "value -> visitors" breakdown, so it never becomes a
+ * candidate for `BREAKDOWN_DIMENSIONS` — see
+ * `migrations/index.ts`'s `AGGREGATE_TABLE_NAMES`. Unlike
+ * `renderBreakdownTable`'s bar (drawn relative to the busiest row), the bar
+ * here is drawn at the row's own absolute depth percentage, since that
+ * percentage is already meaningful on its own.
+ */
+export function renderScrollDepthTable(
+  title: string,
+  rows: readonly ScrollDepthRow[],
+  locale: Locale = DEFAULT_LOCALE,
+): SafeHtml {
+  const messages = messagesFor(locale);
+
+  if (rows.length === 0) {
+    return html`<section class="card">
+  <h2>${title}</h2>
+  <p class="muted">${messages.scrollDepth.noDataForRange}</p>
+</section>`;
+  }
+
+  const sorted = [...rows].sort((a, b) => b.averageDepth - a.averageDepth);
+
+  const bodyRows = sorted.map((row) => {
+    const share = Math.round(row.averageDepth);
+    const coverage = messages.scrollDepth.coverage(
+      formatNumber(row.sessionsWithData, locale),
+      formatNumber(row.totalSessions, locale),
+      row.totalSessions,
+    );
+    return html`<tr><td class="key"><span class="bar" style="width:${share}%" aria-hidden="true"></span><span class="key-label">${renderKeyCell('path', row.path, locale)}</span></td><td class="num">${formatPercent(row.averageDepth / 100, locale)}</td><td class="num num-last">${coverage}</td></tr>`;
+  });
+
+  return html`<section class="card">
+  <h2>${title}</h2>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th><span class="sr-only">${messages.scrollDepth.pathColumn}</span></th><th class="num">${messages.scrollDepth.averageDepthColumn}</th><th class="num num-last">${messages.scrollDepth.coverageColumn}</th></tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+  </div>
+</section>`;
+}
+
 export interface DailyVisitors {
   readonly date: string;
   readonly visitors: number;

@@ -4,7 +4,7 @@ import type { SiteId } from '../../../domain/event/SiteId.ts';
 import type { TimeRange } from '../../../domain/report/TimeRange.ts';
 import type { Breakdown } from '../../../domain/report/Breakdown.ts';
 import type { MetricRow } from '../../../domain/report/Metrics.ts';
-import { SqliteSiteRegistry } from './SqliteSiteRegistry.ts';
+import type { SqliteSiteRegistry } from './SqliteSiteRegistry.ts';
 
 interface RollupRow {
   readonly key: string;

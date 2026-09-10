@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import { registerDashboardRoutes } from './dashboardRoutes.ts';
-import type { QuerySiteMetricsUseCase, SiteActivityUseCase } from './dashboardRoutes.ts';
+import type { QuerySiteMetricsUseCase, QuerySiteScrollDepthUseCase, SiteActivityUseCase } from './dashboardRoutes.ts';
 import type { SiteActivity } from '../../domain/ports/SiteActivityRepository.ts';
+import type { ScrollDepthAggregate } from '../../domain/report/ScrollDepth.ts';
 import { registerAdminAuthRoutes, hashPassword, SESSION_COOKIE_NAME } from './adminAuth.ts';
 import { TokenBucketRateLimiter } from './rateLimit.ts';
 import type { SiteId } from '../../domain/event/SiteId.ts';
@@ -40,6 +41,20 @@ class FakeQuerySiteMetrics implements QuerySiteMetricsUseCase {
   }
 }
 
+class FakeQuerySiteScrollDepth implements QuerySiteScrollDepthUseCase {
+  readonly calls: Array<{ site: SiteId; range: TimeRange }> = [];
+  readonly #rows: readonly ScrollDepthAggregate[];
+
+  constructor(rows: readonly ScrollDepthAggregate[] = []) {
+    this.#rows = rows;
+  }
+
+  async execute(siteId: SiteId, range: TimeRange): Promise<readonly ScrollDepthAggregate[]> {
+    this.calls.push({ site: siteId, range });
+    return this.#rows;
+  }
+}
+
 class FakeSiteActivity implements SiteActivityUseCase {
   readonly calls: SiteId[] = [];
   readonly #activityBySite: Partial<Record<SiteId, SiteActivity>>;
@@ -58,6 +73,7 @@ interface BuildAppOptions {
   readonly password?: string;
   readonly sites?: readonly SiteId[];
   readonly querySiteMetrics?: QuerySiteMetricsUseCase;
+  readonly querySiteScrollDepth?: QuerySiteScrollDepthUseCase;
   readonly siteActivity?: SiteActivityUseCase;
   readonly loginCapacity?: number;
   readonly trustedProxy?: boolean;
@@ -88,6 +104,7 @@ function buildApp(options: BuildAppOptions = {}): { fastify: FastifyInstance; pa
     trustedProxy: options.trustedProxy ?? false,
     loginRateLimiter,
     querySiteMetrics: options.querySiteMetrics ?? new FakeQuerySiteMetrics(),
+    querySiteScrollDepth: options.querySiteScrollDepth ?? new FakeQuerySiteScrollDepth(),
     siteActivity: options.siteActivity ?? new FakeSiteActivity(),
     ...(options.now !== undefined ? { clock: { now: () => options.now as Date } } : {}),
     ...(options.configuredLocale !== undefined ? { configuredLocale: options.configuredLocale } : {}),
@@ -323,6 +340,58 @@ test('GET /dashboard/:site computes headline totals from the device breakdown, n
   assert.match(response.payload, /<span class="value">5<\/span>\s*<div class="label">Visitors<\/div>/);
   assert.match(response.payload, /\/a/);
   assert.match(response.payload, /\/b/);
+});
+
+test('GET /dashboard/:site renders the scroll-depth section, joining the scroll aggregate with the path breakdown\'s total sessions', async () => {
+  const querySiteMetrics = new FakeQuerySiteMetrics({
+    device: [{ key: 'desktop', visitors: 1, pageviews: 400, sessions: 1, bounces: 0, engagementSeconds: 0 }],
+    path: [{ key: '/article', visitors: 400, pageviews: 400, sessions: 400, bounces: 0, engagementSeconds: 0 }],
+  });
+  // Exactly the aggregate a session reaching 75% produces: MAX(25, 50, 75)
+  // per session, summed — never the naive average of the three raw rows.
+  const querySiteScrollDepth = new FakeQuerySiteScrollDepth([{ path: '/article', depthSum: 75, sessionsWithData: 1 }]);
+  const { fastify, passwordUsed } = buildApp({
+    querySiteMetrics,
+    querySiteScrollDepth,
+    now: new Date('2026-01-07T12:00:00Z'),
+  });
+  const cookie = await loginAndGetCookie(fastify, passwordUsed);
+  const response = await fastify.inject({
+    method: 'GET',
+    url: '/dashboard/example.com?range=today',
+    headers: { cookie },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.payload, /Scroll depth/);
+  const scrollSection = response.payload.slice(response.payload.indexOf('Scroll depth'));
+  assert.match(scrollSection, /\/article/);
+  // Must report 75%, never the naive 50% average of the raw milestone rows.
+  assert.match(scrollSection, /75%/);
+  assert.doesNotMatch(scrollSection, /50%/);
+  // Coverage counts sessions on both sides: 1 of the path's 400 sessions produced
+  // scroll data. Page views cannot be the numerator — scroll events carry no
+  // page-view identity, so two views in one session are indistinguishable.
+  assert.match(scrollSection, /1 of 400 sessions/);
+});
+
+test('GET /dashboard/:site with no scroll-depth data for the range says so plainly, instead of an empty table or 0%', async () => {
+  const { fastify, passwordUsed } = buildApp({
+    querySiteMetrics: new FakeQuerySiteMetrics({
+      device: [{ key: 'desktop', visitors: 1, pageviews: 1, sessions: 1, bounces: 0, engagementSeconds: 0 }],
+    }),
+    querySiteScrollDepth: new FakeQuerySiteScrollDepth([]),
+    now: new Date('2026-01-07T12:00:00Z'),
+  });
+  const cookie = await loginAndGetCookie(fastify, passwordUsed);
+  const response = await fastify.inject({
+    method: 'GET',
+    url: '/dashboard/example.com?range=today',
+    headers: { cookie },
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.match(response.payload, /No scroll data for this range\./);
 });
 
 test('GET /dashboard/:site?range=today reuses the headline device query for the single-day chart point instead of querying twice', async () => {

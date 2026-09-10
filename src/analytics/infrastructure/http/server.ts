@@ -11,9 +11,11 @@ import { SqliteEventRepository } from '../persistence/sqlite/SqliteEventReposito
 import { BatchingEventRepository } from '../persistence/sqlite/BatchingEventRepository.ts';
 import { SqliteRollupBuilder } from '../persistence/sqlite/SqliteRollupBuilder.ts';
 import { SqliteMetricsRepository } from '../persistence/sqlite/SqliteMetricsRepository.ts';
+import { SqliteScrollDepthRepository } from '../persistence/sqlite/SqliteScrollDepthRepository.ts';
 import { SqliteSiteActivityRepository } from '../persistence/sqlite/SqliteSiteActivityRepository.ts';
 import { SqliteSiteRegistry } from '../persistence/sqlite/SqliteSiteRegistry.ts';
 import { QuerySiteMetrics } from '../../application/QuerySiteMetrics.ts';
+import { QuerySiteScrollDepth } from '../../application/QuerySiteScrollDepth.ts';
 import { SqliteSaltProvider } from '../salt/SqliteSaltProvider.ts';
 import { GeoipLiteResolver } from '../geo/GeoipLiteResolver.ts';
 import { NodeDeviceDetectorResolver } from '../device/NodeDeviceDetectorResolver.ts';
@@ -74,6 +76,10 @@ export function buildServer(options: BuildServerOptions): TadoruServer {
   const siteRegistry = new SqliteSiteRegistry(db);
   const querySiteMetrics = new QuerySiteMetrics({
     metricsRepository: new SqliteMetricsRepository(db, siteRegistry),
+    clock,
+  });
+  const querySiteScrollDepth = new QuerySiteScrollDepth({
+    scrollDepthRepository: new SqliteScrollDepthRepository(db, siteRegistry),
     clock,
   });
 
@@ -184,6 +190,7 @@ export function buildServer(options: BuildServerOptions): TadoruServer {
       refillPerMinute: LOGIN_RATE_LIMIT_PER_MINUTE,
     }),
     querySiteMetrics,
+    querySiteScrollDepth,
     siteActivity,
     clock,
     ...(config.language !== undefined ? { configuredLocale: config.language } : {}),

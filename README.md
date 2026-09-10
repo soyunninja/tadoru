@@ -387,17 +387,30 @@ real and prints the plan without changing anything on disk.
 password, prints it once, and rewrites only the credential lines — see "When it does not work"
 above for the full walkthrough.
 
+**Keeping country lookups accurate.** `sudo tadoru update-geoip` refreshes the bundled GeoIP
+database. Countries are resolved locally, against a copy that ships inside the package, so nothing
+is ever asked of an outside service — the cost of that is a copy that slowly ages. Restart
+afterwards.
+
+**`tadoru init` is not part of this.** It writes a `tadoru.config.json` and a `tadoru.env` in the
+current directory, for running `tadoru start` yourself. A systemd installation reads neither: it is
+configured entirely from `/etc/tadoru/tadoru.env`, which `install-service` writes. Running `init`
+before `install-service` is harmless but pointless, and the password it prints is not the one that
+opens the dashboard.
+
 **A note on hardening.** Running natively means there is no container isolating the process, so
 the shipped systemd unit does that work instead: dedicated unprivileged user, no capabilities,
 `ProtectSystem=strict`, a restricted syscall filter. Check it with
 `systemd-analyze security tadoru`.
 
 **Dashboard language.** The dashboard is available in English, Spanish and Japanese. It follows
-your browser's `Accept-Language` by default; set `TADORU_LANG` (to `en`, `es` or `ja`) to fix it
-to one language for every visitor instead:
+your browser's `Accept-Language` by default; `TADORU_LANG` (`en`, `es` or `ja`) fixes it to one
+language instead. `install-service` always writes that key into the environment file, and the unit
+loads that file with `EnvironmentFile=`, which takes precedence over the manager environment — so
+change it there rather than with `systemctl set-environment`, which would be silently ignored:
 
 ```bash
-sudo systemctl set-environment TADORU_LANG=es
+sudo sed -i 's/^TADORU_LANG=.*/TADORU_LANG=es/' /etc/tadoru/tadoru.env
 sudo systemctl restart tadoru
 ```
 
@@ -422,6 +435,13 @@ container because there is no database server.
 
 Behavioural depth, no identity depth. That trade is the entire design, and
 [`docs/adr/`](docs/adr/) records why each part of it was chosen and what it costs.
+
+**Collected is not yet the same as shown.** Everything above is recorded and kept, but the
+dashboard does not have a view for all of it. Today it reports pages, referrers, campaigns,
+countries, devices, browsers, operating systems, screen size, language, colour scheme and scroll
+depth. Outbound clicks, custom events and goals, and Core Web Vitals are stored and queryable in
+the database, but have no section yet — they are recorded from the day you install, so the history
+is there whenever those views arrive.
 
 ### What it will never do
 

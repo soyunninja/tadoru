@@ -33,6 +33,19 @@ const ROLLUP_TABLE_NAMES_V2 = ['rollup_daily_screen', 'rollup_daily_language', '
 export const ROLLUP_TABLE_NAMES = [...ROLLUP_TABLE_NAMES_V1, ...ROLLUP_TABLE_NAMES_V2] as const;
 
 /**
+ * Additive daily aggregate tables that are NOT a "value -> visitors"
+ * breakdown dimension — a scroll-depth rollup has no `visitors` column and
+ * is never a candidate for `BREAKDOWN_DIMENSIONS`. Kept as a distinct
+ * constant from `ROLLUP_TABLE_NAMES` on purpose: `migrations/index.test.ts`
+ * asserts `ROLLUP_TABLE_NAMES` and the domain's `ROLLUP_TABLE_ALLOW_LIST`
+ * are the *same set*, so that every breakdown dimension has exactly one
+ * rollup table and vice versa. Folding a non-dimension table into that list
+ * (or weakening the assertion into a subset check) would silently give up
+ * that guarantee.
+ */
+export const AGGREGATE_TABLE_NAMES = ['rollup_daily_scroll'] as const;
+
+/**
  * Keyed by the rollup table union, not by `string`. A `Record<string, string>`
  * is an index signature, so under `noUncheckedIndexedAccess` every lookup is
  * `string | undefined` — and a template literal interpolates `undefined`
@@ -126,6 +139,31 @@ const migrations: readonly Migration[] = [
     version: 2,
     up: (db) => {
       db.exec(ROLLUP_TABLE_NAMES_V2.map(rollupTableSql).join('\n'));
+    },
+  },
+  {
+    // Scroll depth is collected by the tracker (see tracker/payload.ts's
+    // SCROLL_MILESTONES / newlyCrossedMilestones) and stored in raw
+    // `events` rows, but had no rollup of its own until now. Unlike the
+    // per-dimension tables above, this is not a "value -> visitors"
+    // breakdown: it stores the sum of per-session deepest-scroll maxima and
+    // the count of sessions that produced scroll data, so that averaging
+    // across a range is `SUM(depth_sum) / SUM(session_count)` — see
+    // domain/report/ScrollDepth.ts. Migrations 1 and 2 are already applied
+    // on published installations (0.6.1 is live), so this table arrives via
+    // a new migration rather than by editing an earlier one's frozen body.
+    version: 3,
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS rollup_daily_scroll (
+          day INTEGER NOT NULL,
+          site_id INTEGER NOT NULL,
+          path TEXT NOT NULL,
+          depth_sum INTEGER NOT NULL,
+          session_count INTEGER NOT NULL,
+          PRIMARY KEY (day, site_id, path)
+        );
+      `);
     },
   },
 ];

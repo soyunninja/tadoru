@@ -92,3 +92,33 @@ test('the activity summary gets the plural right in every locale', () => {
   // Japanese has no grammatical plural; the counter word carries it.
   assert.match(messagesFor('ja').sites.activitySummary('2秒前', '1', 1), /合計 1 件/);
 });
+
+test('every locale translates the scroll-depth section, and none reuses the English string', () => {
+  const en = messagesFor('en');
+  for (const locale of SUPPORTED_LOCALES) {
+    const messages = messagesFor(locale);
+    assert.ok(messages.scrollDepth.title.length > 0, `${locale} scrollDepth.title is empty`);
+    assert.ok(messages.scrollDepth.pathColumn.length > 0, `${locale} scrollDepth.pathColumn is empty`);
+    assert.ok(messages.scrollDepth.averageDepthColumn.length > 0, `${locale} scrollDepth.averageDepthColumn is empty`);
+    assert.ok(messages.scrollDepth.coverageColumn.length > 0, `${locale} scrollDepth.coverageColumn is empty`);
+    assert.ok(messages.scrollDepth.noDataForRange.length > 0, `${locale} scrollDepth.noDataForRange is empty`);
+    if (locale === 'en') continue;
+    assert.notEqual(messages.scrollDepth.title, en.scrollDepth.title, `${locale} scrollDepth.title matches English`);
+    assert.notEqual(
+      messages.scrollDepth.noDataForRange,
+      en.scrollDepth.noDataForRange,
+      `${locale} scrollDepth.noDataForRange matches English`,
+    );
+  }
+});
+
+test('the scroll-depth coverage message reports how many page views actually produced scroll data, out of the total', () => {
+  // English and Spanish read "with-data of total"; Japanese naturally puts
+  // the total first ("400件中3件") — each locale's own word order, but both
+  // numbers must appear in every one of them.
+  for (const locale of SUPPORTED_LOCALES) {
+    const text = messagesFor(locale).scrollDepth.coverage('3', '400', 400);
+    assert.match(text, /3/, `${locale} coverage text is missing the with-data count`);
+    assert.match(text, /400/, `${locale} coverage text is missing the total count`);
+  }
+});

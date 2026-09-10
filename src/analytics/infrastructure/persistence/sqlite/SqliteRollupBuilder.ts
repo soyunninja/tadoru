@@ -36,6 +36,13 @@ interface AggregatedRow {
   readonly bounces: number;
 }
 
+interface ScrollAggregatedRow {
+  readonly site_id: number;
+  readonly path: string;
+  readonly depth_sum: number;
+  readonly session_count: number;
+}
+
 /**
  * Nightly rollup rebuild: recomputes every rollup table for one full UTC day.
  * Re-running for the same day is idempotent — each dimension table's rows
@@ -55,6 +62,7 @@ export class SqliteRollupBuilder {
       for (const dimension of DIMENSIONS) {
         this.#rebuildDimension(dimension, day, dayEnd);
       }
+      this.#rebuildScroll(day, dayEnd);
     });
     rebuildAll();
 
@@ -126,6 +134,53 @@ export class SqliteRollupBuilder {
         row.bounces,
         row.engagement_seconds,
       );
+    }
+  }
+
+  /**
+   * Rebuilds `rollup_daily_scroll`. Not a `DIMENSIONS` entry: it is not a
+   * "value -> visitors" breakdown, so it is never a candidate for
+   * `BREAKDOWN_DIMENSIONS` — see migrations/index.ts's `AGGREGATE_TABLE_NAMES`.
+   *
+   * A visitor who reaches 75% scroll depth fires three raw `custom`/`scroll`
+   * events (25, 50, 75 — see tracker/payload.ts's `newlyCrossedMilestones`),
+   * so `AVG(value)` over raw rows would report 50. The correct aggregate
+   * takes `MAX(value)` per (site, path, session) first, then sums those
+   * maxima — `depth_sum` — alongside how many sessions contributed one —
+   * `session_count` — so that a range's average is
+   * `SUM(depth_sum) / SUM(session_count)`, additive across days.
+   */
+  #rebuildScroll(day: number, dayEnd: number): void {
+    this.#db.prepare('DELETE FROM rollup_daily_scroll WHERE day = ?').run(day);
+
+    const rows = this.#db
+      .prepare(
+        `
+        WITH session_max AS (
+          SELECT site_id, session_id, path, MAX(value) AS max_depth
+          FROM events
+          WHERE ts >= @start AND ts < @end AND type = 'custom' AND name = 'scroll'
+          GROUP BY site_id, session_id, path
+        )
+        SELECT
+          site_id AS site_id,
+          path AS path,
+          SUM(max_depth) AS depth_sum,
+          COUNT(*) AS session_count
+        FROM session_max
+        GROUP BY site_id, path
+        `,
+      )
+      .all({ start: day, end: dayEnd }) as ScrollAggregatedRow[];
+
+    if (rows.length === 0) return;
+
+    const insert = this.#db.prepare(`
+      INSERT INTO rollup_daily_scroll (day, site_id, path, depth_sum, session_count)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    for (const row of rows) {
+      insert.run(day, row.site_id, row.path, row.depth_sum, row.session_count);
     }
   }
 }

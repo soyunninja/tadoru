@@ -217,6 +217,114 @@ test('populates all ten dimension rollup tables', async () => {
   }
 });
 
+test('rebuilds rollup_daily_scroll: sums the per-session deepest-scroll maximum, not the raw milestone values', async () => {
+  const db = openDatabase(':memory:');
+  const repo = new SqliteEventRepository(db);
+  const rollups = new SqliteRollupBuilder(db);
+
+  // Exactly what the tracker emits for one session scrolling to 75%:
+  // newlyCrossedMilestones fires once per milestone newly crossed, so three
+  // raw rows land for the same path and session (25, 50, 75). AVG over the
+  // raw rows would be 50 — the correct aggregate takes MAX per session (75).
+  await repo.saveBatch([
+    buildEvent({ visitorId: visitor(1), sessionId: visitor(1), path: '/article', type: 'custom', name: 'scroll', value: 25 }),
+    buildEvent({
+      visitorId: visitor(1),
+      sessionId: visitor(1),
+      path: '/article',
+      type: 'custom',
+      name: 'scroll',
+      value: 50,
+      ts: DAY + 100,
+    }),
+    buildEvent({
+      visitorId: visitor(1),
+      sessionId: visitor(1),
+      path: '/article',
+      type: 'custom',
+      name: 'scroll',
+      value: 75,
+      ts: DAY + 200,
+    }),
+  ]);
+
+  await rollups.execute(DAY);
+
+  const row = db
+    .prepare('SELECT depth_sum, session_count FROM rollup_daily_scroll WHERE day = ? AND path = ?')
+    .get(DAY, '/article') as { depth_sum: number; session_count: number } | undefined;
+  assert.ok(row !== undefined);
+  assert.equal(row.depth_sum, 75);
+  assert.equal(row.session_count, 1);
+});
+
+test('rollup_daily_scroll sums per-session maxima across distinct sessions on the same path', async () => {
+  const db = openDatabase(':memory:');
+  const repo = new SqliteEventRepository(db);
+  const rollups = new SqliteRollupBuilder(db);
+
+  await repo.saveBatch([
+    buildEvent({ visitorId: visitor(1), sessionId: visitor(1), path: '/a', type: 'custom', name: 'scroll', value: 100 }),
+    buildEvent({
+      visitorId: visitor(2),
+      sessionId: visitor(2),
+      path: '/a',
+      type: 'custom',
+      name: 'scroll',
+      value: 25,
+      ts: DAY + 100,
+    }),
+  ]);
+
+  await rollups.execute(DAY);
+
+  const row = db
+    .prepare('SELECT depth_sum, session_count FROM rollup_daily_scroll WHERE day = ? AND path = ?')
+    .get(DAY, '/a') as { depth_sum: number; session_count: number } | undefined;
+  assert.ok(row !== undefined);
+  assert.equal(row.depth_sum, 125);
+  assert.equal(row.session_count, 2);
+});
+
+test('rollup_daily_scroll ignores non-scroll events entirely', async () => {
+  const db = openDatabase(':memory:');
+  const repo = new SqliteEventRepository(db);
+  const rollups = new SqliteRollupBuilder(db);
+
+  await repo.saveBatch([
+    buildEvent({ visitorId: visitor(1), sessionId: visitor(1), path: '/a', type: 'pageview' }),
+    buildEvent({
+      visitorId: visitor(1),
+      sessionId: visitor(1),
+      path: '/a',
+      type: 'engagement',
+      value: 30,
+      ts: DAY + 100,
+    }),
+  ]);
+
+  await rollups.execute(DAY);
+
+  const row = db.prepare('SELECT * FROM rollup_daily_scroll WHERE day = ? AND path = ?').get(DAY, '/a');
+  assert.equal(row, undefined);
+});
+
+test('re-running rollup_daily_scroll for the same day is idempotent: it replaces rows rather than doubling them', async () => {
+  const db = openDatabase(':memory:');
+  const repo = new SqliteEventRepository(db);
+  const rollups = new SqliteRollupBuilder(db);
+
+  await repo.saveBatch([
+    buildEvent({ visitorId: visitor(1), sessionId: visitor(1), path: '/a', type: 'custom', name: 'scroll', value: 50 }),
+  ]);
+
+  await rollups.execute(DAY);
+  await rollups.execute(DAY);
+
+  const rows = db.prepare('SELECT * FROM rollup_daily_scroll WHERE day = ? AND path = ?').all(DAY, '/a');
+  assert.equal(rows.length, 1);
+});
+
 test('a pixel hit carrying none of screen/language/colour-scheme rolls up under the empty key rather than vanishing', async () => {
   const db = openDatabase(':memory:');
   const repo = new SqliteEventRepository(db);

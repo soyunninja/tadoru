@@ -15,7 +15,9 @@ import {
   renderVisitorChart,
   renderLogoutForm,
   renderTrackingSnippet,
+  renderScrollDepthTable,
 } from './components.ts';
+import type { ScrollDepthRow } from './components.ts';
 
 function row(overrides: Partial<MetricRow> & { key: string }): MetricRow {
   return { pageviews: 0, visitors: 0, sessions: 0, bounces: 0, engagementSeconds: 0, ...overrides };
@@ -404,4 +406,47 @@ test('every icon the interface renders sits in the attributed licence range', ()
       `U+${codepoint?.toString(16)} falls outside the attributed range`,
     );
   }
+});
+
+function scrollRow(overrides: Partial<ScrollDepthRow> & { path: string }): ScrollDepthRow {
+  return { averageDepth: 0, sessionsWithData: 0, totalSessions: 0, ...overrides };
+}
+
+test('renderScrollDepthTable renders a readable empty state for no rows, like renderBreakdownTable', () => {
+  const out = renderScrollDepthTable('Scroll depth', []).toString();
+  assert.match(out, /No scroll data for this range\./);
+  assert.ok(!out.includes('<table'));
+});
+
+test('renderScrollDepthTable shows the average depth and the coverage of each path, not a bare percentage', () => {
+  const out = renderScrollDepthTable('Scroll depth', [
+    scrollRow({ path: '/article', averageDepth: 75, sessionsWithData: 3, totalSessions: 400 }),
+  ]).toString();
+  assert.match(out, /\/article/);
+  assert.match(out, /75%/);
+  // Coverage must show both the small sample and the total, never look like
+  // a bare 75% with no indication only 3 of 400 views produced any data.
+  assert.match(out, /3 of 400 sessions/);
+});
+
+test('renderScrollDepthTable escapes an attacker-controlled path', () => {
+  const rows = [scrollRow({ path: '<script>alert(1)</script>', averageDepth: 50, sessionsWithData: 1, totalSessions: 1 })];
+  const out = renderScrollDepthTable('Scroll depth', rows).toString();
+  assert.ok(!out.includes('<script>alert(1)</script>'));
+  assert.match(out, /&lt;script&gt;/);
+});
+
+test('renderScrollDepthTable sorts rows by average depth, deepest first', () => {
+  const out = renderScrollDepthTable('Scroll depth', [
+    scrollRow({ path: '/shallow', averageDepth: 20, sessionsWithData: 1, totalSessions: 1 }),
+    scrollRow({ path: '/deep', averageDepth: 90, sessionsWithData: 1, totalSessions: 1 }),
+  ]).toString();
+  assert.ok(out.indexOf('/deep') < out.indexOf('/shallow'));
+});
+
+test('renderScrollDepthTable draws the bar at the absolute depth percentage, not relative to the busiest row', () => {
+  const out = renderScrollDepthTable('Scroll depth', [
+    scrollRow({ path: '/a', averageDepth: 40, sessionsWithData: 1, totalSessions: 1 }),
+  ]).toString();
+  assert.match(out, /width:40%/);
 });

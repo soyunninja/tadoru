@@ -22,6 +22,8 @@ import { dayStart, daysInRange, SECONDS_PER_DAY } from '../../domain/report/Time
 import type { Breakdown, BreakdownDimension } from '../../domain/report/Breakdown.ts';
 import { createBreakdown } from '../../domain/report/Breakdown.ts';
 import type { MetricRow } from '../../domain/report/Metrics.ts';
+import type { ScrollDepthAggregate } from '../../domain/report/ScrollDepth.ts';
+import { averageScrollDepth } from '../../domain/report/ScrollDepth.ts';
 import type { SiteActivity } from '../../domain/ports/SiteActivityRepository.ts';
 import { html } from './views/escapeHtml.ts';
 import type { SafeHtml } from './views/escapeHtml.ts';
@@ -30,6 +32,7 @@ import { renderLoginPage } from './views/loginPage.ts';
 import type { RangeKey } from './views/overviewPage.ts';
 import { renderOverviewPage } from './views/overviewPage.ts';
 import { sumMetricRows, renderLogoutForm, renderTrackingSnippet } from './views/components.ts';
+import type { ScrollDepthRow } from './views/components.ts';
 import { COPY_BUTTON_SCRIPT_SHA256 } from './views/copyScript.ts';
 import type { Locale } from '../i18n/Locale.ts';
 import { resolveLocale } from '../i18n/Locale.ts';
@@ -44,6 +47,14 @@ import { formatNumber, formatRelativeTime } from '../i18n/format.ts';
  */
 export interface QuerySiteMetricsUseCase {
   execute(site: SiteId, range: TimeRange, breakdown: Breakdown): Promise<readonly MetricRow[]>;
+}
+
+/**
+ * The narrow surface `dashboardRoutes` needs from `QuerySiteScrollDepth`,
+ * mirroring `QuerySiteMetricsUseCase` above.
+ */
+export interface QuerySiteScrollDepthUseCase {
+  execute(site: SiteId, range: TimeRange): Promise<readonly ScrollDepthAggregate[]>;
 }
 
 /**
@@ -64,6 +75,8 @@ export interface DashboardRoutesDependencies {
   /** Dedicated to the HTML login route — a credential-guessing target, configured stricter than ingest, same as `AdminAuthRoutesDependencies.loginRateLimiter`. */
   readonly loginRateLimiter: TokenBucketRateLimiter;
   readonly querySiteMetrics: QuerySiteMetricsUseCase;
+  /** Optional so an installation that hasn't wired the adapter yet still renders — the scroll-depth section simply reports no data for the range. */
+  readonly querySiteScrollDepth?: QuerySiteScrollDepthUseCase;
   /** Optional so an installation that hasn't wired the adapter yet still renders — every site simply reports as never having received an event. */
   readonly siteActivity?: SiteActivityUseCase;
   readonly clock?: Clock;
@@ -76,6 +89,40 @@ const DEFAULT_CLOCK: Clock = { now: () => new Date() };
 const DEFAULT_SITE_ACTIVITY: SiteActivityUseCase = {
   activityFor: () => Promise.resolve({ totalEvents: 0, lastEventTs: null }),
 };
+
+const DEFAULT_QUERY_SITE_SCROLL_DEPTH: QuerySiteScrollDepthUseCase = {
+  execute: () => Promise.resolve([]),
+};
+
+/**
+ * Joins each scroll-depth aggregate with its path's total pageviews (already
+ * fetched for the "Top pages" breakdown) into a renderable row. A path with
+ * scroll data but no matching breakdown row (should not happen in practice —
+ * a scroll event only ever follows a pageview on the same path) falls back
+ * to 0 rather than throwing, so a query race can never break the page.
+ */
+function toScrollDepthRows(
+  aggregates: readonly ScrollDepthAggregate[],
+  pathRows: readonly MetricRow[],
+): readonly ScrollDepthRow[] {
+  // Sessions on both sides of the ratio. The depth is an average of per-session
+  // maxima, and scroll events carry no page-view identity — two views of one
+  // page in a session are indistinguishable — so page views cannot be the
+  // numerator, and using them as the denominator alone compares two units.
+  const totalSessionsByPath = new Map(pathRows.map((row) => [row.key, row.sessions]));
+  const rows: ScrollDepthRow[] = [];
+  for (const aggregate of aggregates) {
+    const averageDepth = averageScrollDepth(aggregate);
+    if (averageDepth === null) continue;
+    rows.push({
+      path: aggregate.path,
+      averageDepth,
+      sessionsWithData: aggregate.sessionsWithData,
+      totalSessions: totalSessionsByPath.get(aggregate.path) ?? 0,
+    });
+  }
+  return rows;
+}
 
 // Must match adminAuth.ts's private SESSION_VALUE_PREFIX ('admin-session')
 // exactly: that constant is not exported, so a session created by either
@@ -430,21 +477,34 @@ export function registerDashboardRoutes(fastify: FastifyInstance, deps: Dashboar
         const deviceRows = await deps.querySiteMetrics.execute(matchedSite, range, deviceBreakdown);
         const totals = sumMetricRows(deviceRows);
 
+        const querySiteScrollDepth = deps.querySiteScrollDepth ?? DEFAULT_QUERY_SITE_SCROLL_DEPTH;
+
         // A literal-length tuple (rather than mapping over
         // OTHER_BREAKDOWN_DIMENSIONS and destructuring the result) keeps
         // each element's type exact under `noUncheckedIndexedAccess`.
-        const [pathRows, referrerRows, countryRows, browserRows, osRows, campaignRows, screenRows, languageRows, colorSchemeRows] =
-          await Promise.all([
-            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('path')),
-            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('referrer')),
-            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('country')),
-            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('browser')),
-            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('os')),
-            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('campaign')),
-            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('screen')),
-            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('language')),
-            deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('colorScheme')),
-          ]);
+        const [
+          pathRows,
+          referrerRows,
+          countryRows,
+          browserRows,
+          osRows,
+          campaignRows,
+          screenRows,
+          languageRows,
+          colorSchemeRows,
+          scrollDepthAggregates,
+        ] = await Promise.all([
+          deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('path')),
+          deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('referrer')),
+          deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('country')),
+          deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('browser')),
+          deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('os')),
+          deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('campaign')),
+          deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('screen')),
+          deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('language')),
+          deps.querySiteMetrics.execute(matchedSite, range, fixedBreakdown('colorScheme')),
+          querySiteScrollDepth.execute(matchedSite, range),
+        ]);
 
         const days = daysInRange(range);
         const dailyVisitors = await Promise.all(
@@ -480,6 +540,7 @@ export function registerDashboardRoutes(fastify: FastifyInstance, deps: Dashboar
             language: languageRows,
             colorScheme: colorSchemeRows,
           },
+          scrollDepth: toScrollDepthRows(scrollDepthAggregates, pathRows),
           version: PACKAGE_METADATA.version,
           repositoryUrl: PACKAGE_METADATA.repositoryUrl,
           locale,

@@ -82,6 +82,22 @@ export interface Messages {
     readonly visitorsColumn: string;
     readonly pageviewsColumn: string;
   };
+  readonly scrollDepth: {
+    readonly title: string;
+    readonly pathColumn: string;
+    readonly averageDepthColumn: string;
+    readonly coverageColumn: string;
+    readonly noDataForRange: string;
+    /**
+     * `withData` and `total` are pre-formatted counts (see `activitySummary`
+     * for why: only the locale knows its own plural rules); `count` is the
+     * raw total for pluralisation. Reports how many sessions actually
+     * produced scroll data out of the path's total sessions, so a small sample never
+     * reads like a full one — see specs/reporting for why this must never
+     * be a bare percentage.
+     */
+    readonly coverage: (withData: string, total: string, count: number) => string;
+  };
   readonly chart: {
     readonly noData: string;
     readonly ariaLabel: string;
@@ -177,6 +193,14 @@ const en: Messages = {
     noDataForRange: 'No data for this range.',
     visitorsColumn: 'Visitors',
     pageviewsColumn: 'Pageviews',
+  },
+  scrollDepth: {
+    title: 'Scroll depth',
+    pathColumn: 'Page',
+    averageDepthColumn: 'Avg. depth',
+    coverageColumn: 'Coverage',
+    noDataForRange: 'No scroll data for this range.',
+    coverage: (withData, total, count) => `${withData} of ${total} ${count === 1 ? 'session' : 'sessions'}`,
   },
   chart: {
     noData: 'No data to chart.',
@@ -274,6 +298,15 @@ const es: Messages = {
     visitorsColumn: 'Visitantes',
     pageviewsColumn: 'Páginas vistas',
   },
+  scrollDepth: {
+    title: 'Profundidad de scroll',
+    pathColumn: 'Página',
+    averageDepthColumn: 'Profundidad media',
+    coverageColumn: 'Cobertura',
+    noDataForRange: 'No hay datos de scroll para este rango.',
+    coverage: (withData, total, count) =>
+      `${withData} de ${total} ${count === 1 ? 'sesión' : 'sesiones'}`,
+  },
   chart: {
     noData: 'No hay datos para graficar.',
     ariaLabel: 'Visitantes por día',
@@ -367,6 +400,14 @@ const ja: Messages = {
     noDataForRange: 'この範囲のデータはありません。',
     visitorsColumn: '訪問者数',
     pageviewsColumn: 'ページビュー',
+  },
+  scrollDepth: {
+    title: 'スクロール到達率',
+    pathColumn: 'ページ',
+    averageDepthColumn: '平均到達率',
+    coverageColumn: 'カバー率',
+    noDataForRange: 'この範囲のスクロールデータはありません。',
+    coverage: (withData, total) => `${total} セッション中 ${withData} セッション`,
   },
   chart: {
     noData: 'グラフ化するデータがありません。',

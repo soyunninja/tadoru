@@ -7,8 +7,10 @@ import {
   renderBreakdownTable,
   renderVisitorChart,
   renderLogoutForm,
+  renderScrollDepthTable,
   type HeadlineTotals,
   type DailyVisitors,
+  type ScrollDepthRow,
 } from './components.ts';
 import type { Locale } from '../../i18n/Locale.ts';
 import { DEFAULT_LOCALE } from '../../i18n/Locale.ts';
@@ -37,6 +39,14 @@ export interface OverviewPageOptions {
   readonly totals: HeadlineTotals;
   readonly dailyVisitors: readonly DailyVisitors[];
   readonly breakdowns: OverviewPageBreakdowns;
+  /**
+   * Optional (defaults to empty, which renders the section's own "no scroll
+   * data" empty state) so existing callers/tests that predate this section
+   * are unaffected — mirrors how `repositoryUrl`/`locale` stay optional
+   * below. Not part of `OverviewPageBreakdowns`: scroll depth is not a
+   * `BreakdownDimension` — see `renderScrollDepthTable`.
+   */
+  readonly scrollDepth?: readonly ScrollDepthRow[];
   readonly version: string;
   readonly repositoryUrl?: string;
   readonly locale?: Locale;
@@ -93,7 +103,8 @@ ${renderBreakdownTable(messages.breakdown.titles.browser, 'browser', breakdowns.
 ${renderBreakdownTable(messages.breakdown.titles.os, 'os', breakdowns.os, locale)}
 ${renderBreakdownTable(messages.breakdown.titles.screen, 'screen', breakdowns.screen, locale)}
 ${renderBreakdownTable(messages.breakdown.titles.language, 'language', breakdowns.language, locale)}
-${renderBreakdownTable(messages.breakdown.titles.colorScheme, 'colorScheme', breakdowns.colorScheme, locale)}`
+${renderBreakdownTable(messages.breakdown.titles.colorScheme, 'colorScheme', breakdowns.colorScheme, locale)}
+${renderScrollDepthTable(messages.scrollDepth.title, options.scrollDepth ?? [], locale)}`
     : html`<p>${messages.overview.noData} <a href="/dashboard">${messages.overview.noDataLinkText}</a>.</p>
 <p class="muted">${messages.overview.ingestDelay}</p>`;
 
