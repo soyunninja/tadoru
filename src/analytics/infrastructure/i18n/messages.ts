@@ -29,6 +29,8 @@ export interface Messages {
     readonly pageTitle: string;
     readonly heading: string;
     readonly empty: string;
+    /** Introduces the single tracking snippet shown once below the list, explaining why one serves every site. */
+    readonly snippetIntro: string;
     /** Shown for a configured site that has never received an event: says so, and what to check. */
     readonly activityNever: string;
     /** `lastSeen` is a pre-formatted relative time ("2 minutes ago"); `totalEvents` a pre-formatted count. */
@@ -111,6 +113,7 @@ const en: Messages = {
     pageTitle: 'Sites — Tadoru',
     heading: 'Sites',
     empty: 'No sites configured.',
+    snippetIntro: 'The same snippet goes on every site above — a site is recognised by its own domain, so there is no key to swap.',
     activityNever:
       'No events received yet. Check that the tracking snippet is installed, and that the domain matches exactly — including "www." if your site uses it.',
     activitySummary: (lastSeen, totalEvents, count) =>
@@ -203,6 +206,7 @@ const es: Messages = {
     pageTitle: 'Sitios — Tadoru',
     heading: 'Sitios',
     empty: 'No hay sitios configurados.',
+    snippetIntro: 'El mismo snippet vale para todos los sitios de arriba: cada sitio se reconoce por su propio dominio, así que no hay ninguna clave que cambiar.',
     activityNever:
       'Todavía no se ha recibido ningún evento. Comprueba que el fragmento de seguimiento esté instalado y que el dominio coincida exactamente — incluyendo «www.» si tu sitio lo usa.',
     activitySummary: (lastSeen, totalEvents, count) =>
@@ -296,6 +300,7 @@ const ja: Messages = {
     pageTitle: 'サイト — Tadoru',
     heading: 'サイト',
     empty: '設定されているサイトはありません。',
+    snippetIntro: '上のすべてのサイトに、同じスニペットを貼ります。サイトは自分のドメインで識別されるため、差し替えるキーはありません。',
     activityNever:
       'まだイベントを受信していません。トラッキングスニペットが設置されているか、ドメインが「www.」を含めて正確に一致しているかを確認してください。',
     activitySummary: (lastSeen, totalEvents) => `最終イベント: ${lastSeen} ・ 合計 ${totalEvents} 件`,

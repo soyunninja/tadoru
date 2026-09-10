@@ -507,3 +507,36 @@ test('the sites page, the overview page and the 404 page are all translated', as
   assert.equal(notFoundPage.statusCode, 404);
   assert.match(notFoundPage.payload, /<h1>No encontrado<\/h1>/);
 });
+
+// The snippet carries no site key — `renderTrackingSnippet` takes only the host
+// — so a site is recognised by the domain the request arrives from. Repeating
+// an identical block under every site was three quarters of the page telling
+// the operator the same thing four times.
+test('GET /dashboard shows the tracking snippet once, not once per site', async () => {
+  const { fastify, passwordUsed } = buildApp({
+    sites: [site('one.example'), site('two.example'), site('three.example')],
+  });
+  const cookie = await loginAndGetCookie(fastify, passwordUsed);
+
+  const response = await fastify.inject({
+    method: 'GET',
+    url: '/dashboard',
+    headers: { cookie, host: 'admin.example.com' },
+  });
+
+  assert.equal(response.statusCode, 200);
+  const snippetBlocks = response.payload.split('/t.js').length - 1;
+  assert.equal(snippetBlocks, 1, `expected one snippet block, found ${snippetBlocks}`);
+  // Every site is still listed, and still says whether anything has arrived.
+  assert.match(response.payload, /one\.example/);
+  assert.match(response.payload, /two\.example/);
+  assert.match(response.payload, /three\.example/);
+});
+
+test('GET /dashboard says the one snippet is the same for every site', async () => {
+  const { fastify, passwordUsed } = buildApp({ sites: [site('one.example'), site('two.example')] });
+  const cookie = await loginAndGetCookie(fastify, passwordUsed);
+  const response = await fastify.inject({ method: 'GET', url: '/dashboard', headers: { cookie } });
+  assert.equal(response.statusCode, 200);
+  assert.match(response.payload, /same snippet|every site/i);
+});

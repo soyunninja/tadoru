@@ -233,14 +233,19 @@ function renderSitesPage(options: {
     return html`<li>
   <h2><a href="/dashboard/${siteId}">${siteId}</a></h2>
   <p class="muted">${renderSiteActivityLine(activity, options.nowSeconds, options.locale)}</p>
-  ${renderTrackingSnippet(options.host, options.secure)}
 </li>`;
   });
 
+  // Rendered once, below the list, rather than under each site: the snippet
+  // carries no site key — `renderTrackingSnippet` takes only the host — so
+  // every site's block was byte-identical, and on a four-site installation the
+  // repetition was most of the page.
   const listOrEmpty =
     options.sites.length === 0
       ? html`<p class="muted">${messages.sites.empty}</p>`
-      : html`<ul>${items}</ul>`;
+      : html`<ul>${items}</ul>
+<p class="muted">${messages.sites.snippetIntro}</p>
+${renderTrackingSnippet(options.host, options.secure)}`;
 
   const body = html`<h1>${messages.sites.heading}</h1>
 ${listOrEmpty}
