@@ -293,7 +293,7 @@ const STYLE = `
   button { cursor: pointer; }
   button:hover { border-color: var(--accent); }
   form.inline { display: inline; }
-  code, pre { background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; }
+  code, pre { background: var(--surface-2); border-radius: 7px; }
   code { padding: 0.1rem 0.3rem; }
   /* The only element allowed to scroll horizontally: the snippet can be wider
      than its column, but the page body never gains a horizontal scrollbar. */
